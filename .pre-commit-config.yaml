@@ -15,6 +15,12 @@ repos:
 
   - repo: local
     hooks:
+      - id: forbid-env-files
+        name: interdire les fichiers .env (secrets)
+        entry: "Fichier .env interdit dans Git : les secrets restent locaux (CLAUDE.md, règle 4)."
+        language: fail
+        files: '(^|/)\.env(\..+)?$'
+        exclude: '(^|/)\.env\.example$'
       - id: ruff-check
         name: ruff check
         entry: uv run ruff check --fix

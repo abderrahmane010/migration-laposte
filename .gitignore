@@ -11,6 +11,7 @@ out/*
 # Secrets
 .env
 .env.*
+!.env.example
 *.pem
 .databrickscfg
 github-ssh*
