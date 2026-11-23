@@ -167,3 +167,12 @@ Une recette qui serait `AUTO` passe en `MANUAL`, avec son motif, si son payload 
 - **Objets partagés** : sur le projet réel, la clé d'API ne peut pas lire `params.json` ; les `exposedObjects` manquent. Les vagues ne reposent alors que sur le côté consommateur (entrées `PROJET.dataset`).
 - **Calibrage** : seuils et jours d'effort à ajuster sur le pilote ; listes H-27 et H-28 à compléter avec le catalogue réel.
 - **Variables d'instance** (`${NODE_DC}`) : toujours pas d'option CLI ; reporté en phase 7.
+
+Phase 2 validée par le responsable le 2026-11-23, grille de score conservée telle quelle.
+
+## Phase 3 — Traducteurs des recettes visuelles relationnelles (démarrée le 2026-11-23)
+
+### Décisions prises avec le responsable
+
+- **Format réel d'abord** : avant d'écrire les traducteurs, la structure anonymisée des payloads visuels du projet réel est relevée (`python -m dku2dbx_bridge.structure`, dépôt `agentic_projet` : chemins de clés, types et codes en majuscules uniquement).
+- **Noms de tables** : le SQL généré référence les datasets par leur nom Dataiku ; les phases 6 et 7 les remplaceront par `catalog.schema.table` de façon déterministe (`sqlglot`).
