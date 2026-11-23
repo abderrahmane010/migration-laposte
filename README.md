@@ -15,6 +15,7 @@ uv run dku2dbx analyze exports/ --out out/      # analyse : inventaire, classeme
 uv run dku2dbx analyze export.zip --dump-ir     # un seul projet, avec en plus out/<projet>/ir.json
 uv run dku2dbx simplify export.zip              # étapes après fusion -> out/<projet>/simplify.md
 uv run dku2dbx translate export.zip             # recettes visuelles -> out/<projet>/sql/*.sql
+uv run dku2dbx generate export.zip              # bundle Databricks -> out/<projet>/bundle/
 uv run python tests/fixtures/make_fixture.py    # régénère les exports synthétiques
 uv run pytest                                   # tests
 uv run ruff check . && uv run ruff format --check . && uv run mypy
@@ -38,6 +39,15 @@ La classe d'une recette est sa **classe cible** prévue par la ROADMAP ; la colo
 ## Simplifier (phase 5)
 
 `dku2dbx simplify <export.zip> [--no-fusion]` fusionne les chaînes de recettes en étapes : une table intermédiaire lue par une seule recette devient une CTE de l'étape qui la consomme. Une table reste matérialisée si c'est une sortie finale ou exposée, si plusieurs recettes la lisent, si elle est partitionnée, en append, porte des checks ou sert à un scénario, ou si elle touche une recette `LLM_REVIEW`, `MANUAL` ou non traduisible. `simplify.md` donne les étapes, les tables supprimées et la raison de chaque table conservée ; `--no-fusion` garde une étape par recette.
+
+## Générer le bundle (phase 6)
+
+`dku2dbx generate <export.zip> [--target job|pipeline] [--out] [--no-fusion]` écrit un bundle Databricks déployable (`databricks bundle deploy`) :
+
+- **cible A, `job`** (défaut) : un notebook SQL par étape, orchestrés par un Lakeflow Job ;
+- **cible B, `pipeline`** : un pipeline Lakeflow de vues matérialisées, puis des tâches SQL pour les étapes partitionnées, en append ou à migrer à la main.
+
+Le bundle contient `databricks.yml` (targets `dev` / `prod`, variables, permissions), `resources/` (jobs, pipeline), `src/` (SQL) et **`GENERATION.md`**, à lire en premier : étapes à migrer à la main, scénarios, partitions, variables, checks non traduits. Les scénarios deviennent des jobs planifiés, les variables Dataiku des paramètres, les partitions journalières des écritures `REPLACE WHERE`. Avant de déployer, renseigner `catalog`, `schema` et `admin_group` (valeurs fictives entre crochets).
 
 ## Traduire (phase 3)
 

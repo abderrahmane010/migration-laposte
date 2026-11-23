@@ -34,7 +34,12 @@ resources:
             - task_key: {{ dep | tojson }}
 {%- endfor %}
 {%- endif %}
+{%- if task.pipeline is defined %}
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.{{ task.pipeline }}.id}
+{%- else %}
           notebook_task:
             notebook_path: {{ task.notebook | tojson }}
+{%- endif %}
 {%- endfor %}
 {%- endfor %}

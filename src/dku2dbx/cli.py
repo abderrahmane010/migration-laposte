@@ -209,12 +209,13 @@ def generate(
     ),
     no_fusion: bool = typer.Option(False, "--no-fusion", help="Une étape par recette."),
 ) -> None:
-    """Migrer : générer le bundle Databricks (job de notebooks SQL) (phase 6)."""
-    if target != "job":
-        _not_implemented(f"generate --target {target}", 6)
+    """Migrer : générer le bundle Databricks, job de notebooks SQL ou pipeline (phase 6)."""
+    if target not in ("job", "pipeline"):
+        typer.echo(f"Erreur : cible inconnue {target!r} (job ou pipeline)", err=True)
+        raise typer.Exit(code=1)
     try:
         project = ZipExportReader(export).read()
-        bundle = generate_job_bundle(project, fusion=not no_fusion)
+        bundle = generate_job_bundle(project, fusion=not no_fusion, target=target)
     except (ExportReadError, SimplifyError, GenerateError) as exc:
         typer.echo(f"Erreur : {exc}", err=True)
         raise typer.Exit(code=1) from exc

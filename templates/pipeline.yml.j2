@@ -1,0 +1,19 @@
+# {{ header }}
+resources:
+  pipelines:
+    {{ key }}:
+      name: {{ name | tojson }}
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+{%- if configuration %}
+      configuration:
+{%- for k, v in configuration.items() %}
+        {{ k | tojson }}: {{ v | tojson }}
+{%- endfor %}
+{%- endif %}
+      libraries:
+{%- for path in libraries %}
+        - file:
+            path: {{ path | tojson }}
+{%- endfor %}

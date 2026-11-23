@@ -15,7 +15,7 @@ import sqlglot
 import yaml
 from typer.testing import CliRunner
 
-from dku2dbx.cli import NOT_IMPLEMENTED_EXIT_CODE, app
+from dku2dbx.cli import app
 from dku2dbx.generate.bundle import CELL, generate_job_bundle, write_bundle
 from dku2dbx.generate.partitions import PARTITION_DATE_SQL
 from dku2dbx.generate.scenarios import scenario_jobs
@@ -204,8 +204,10 @@ def test_cli_generate(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "dont 4 à migrer à la main" in result.output
     assert (tmp_path / "b" / "databricks.yml").is_file()
-    result = CliRunner().invoke(app, ["generate", export, "--target", "pipeline"])
-    assert result.exit_code == NOT_IMPLEMENTED_EXIT_CODE
+    result = CliRunner().invoke(
+        app, ["generate", export, "--target", "pipeline", "--out", str(tmp_path / "p")]
+    )
+    assert result.exit_code == 0, result.output
 
 
 def test_schema_still_rejects_errors(bundle_schema: dict[str, Any]) -> None:
@@ -418,3 +420,149 @@ def test_unmapped_partition_dependency_is_reported(tmp_path: Path) -> None:
     [step] = [g for g in bundle.steps if "events_sync" in g.step.outputs]
     assert not step.translated
     assert any("partition dependency" in r and "time_range" in r for r in step.reasons)
+
+
+# --------------------------------------------------------------------------- #
+# Target B: Lakeflow pipeline (H-54)
+# --------------------------------------------------------------------------- #
+def _pipeline(key: str) -> Any:
+    return generate_job_bundle(fixture(key), target="pipeline")
+
+
+@pytest.mark.parametrize("key", ["DEMO_SIMPLE", "DEMO_COMPLEXE"])
+@pytest.mark.parametrize("name", ["databricks.yml", "resources/jobs.yml", "resources/pipeline.yml"])
+def test_pipeline_bundle_matches_the_official_schema(
+    key: str, name: str, bundle_schema: dict[str, Any]
+) -> None:
+    document = yaml.safe_load(_pipeline(key).files[name])
+    validator = jsonschema.validators.validator_for(bundle_schema)(bundle_schema)
+    errors = list(validator.iter_errors(document))
+    assert errors == [], [f"{list(e.path)}: {e.message}" for e in errors]
+    assert set(document) <= set(bundle_schema["properties"])
+
+
+def test_demo_simple_is_entirely_a_pipeline() -> None:
+    bundle = _pipeline("DEMO_SIMPLE")
+    assert bundle.pipeline_steps == ["step_01", "step_02", "step_03"]
+    assert not any(p.startswith("src/step_") for p in bundle.files)  # no SQL task
+    job = yaml.safe_load(bundle.files["resources/jobs.yml"])["resources"]["jobs"][
+        "dku2dbx_demo_simple_job"
+    ]
+    assert [t["task_key"] for t in job["tasks"]] == ["prepare_schema", "pipeline"]
+    assert job["tasks"][1]["pipeline_task"]["pipeline_id"] == (
+        "${resources.pipelines.dku2dbx_demo_simple_pipeline.id}"
+    )
+    pipeline = yaml.safe_load(bundle.files["resources/pipeline.yml"])["resources"]["pipelines"][
+        "dku2dbx_demo_simple_pipeline"
+    ]
+    assert pipeline["serverless"] is True
+    assert pipeline["configuration"] == {"dku_min_amount": "${var.dku_min_amount}"}
+    for path in (lib["file"]["path"] for lib in pipeline["libraries"]):
+        sql = bundle.files[path.removeprefix("../")]
+        for statement in sqlglot.parse(sql, read="databricks"):
+            if statement is not None:
+                assert statement.sql(dialect="databricks", comments=False).startswith(
+                    "CREATE OR REFRESH MATERIALIZED VIEW"
+                )
+
+
+def test_partitioned_append_manual_and_downstream_steps_leave_the_pipeline() -> None:
+    project = fixture("DEMO_COMPLEXE")
+    bundle = generate_job_bundle(project, target="pipeline")
+    flow = simplify_flow(project)
+    inside = set(bundle.pipeline_steps)
+    writer = {t: s.id for s in flow.steps for t in s.outputs}
+    for step in flow.steps:
+        recipes = [project.recipe(r) for r in step.recipes]
+        outputs = [project.dataset(t) for t in step.outputs]
+        if step.id in inside:
+            assert not any(d.partitioning for d in outputs)
+            assert not any(o.append_mode for r in recipes for o in r.outputs)
+            # a view never reads a table written by a SQL task (which runs after)
+            reads = {i.ref for r in recipes for i in r.inputs}
+            assert all(writer[t] in inside for t in reads if t in writer)
+    manual = {g.step.id for g in bundle.steps if not g.translated}
+    assert manual and not manual & inside
+
+
+def test_pipeline_reads_variables_from_its_configuration(tmp_path: Path) -> None:
+    p = mf.build_demo_simple()
+    p.add_dataset(mf.dataset(p.key, "x", cols=mf.columns("order_id:bigint", "big:boolean")))
+    p.add_recipe(
+        mf.recipe(p.key, "flag", "shaker", [mf.ref("orders_raw")], [mf.out_ref("x")]),
+        mf.shaker(
+            [
+                mf.step(
+                    "CreateColumnWithGREL",
+                    {"column": "big", "expression": "amount > ${min_amount}"},
+                ),
+                mf.step(
+                    "ColumnsSelector",
+                    {"keep": True, "columns": ["order_id", "big"], "appliesTo": "COLUMNS"},
+                ),
+            ]
+        ),
+    )
+    bundle = generate_job_bundle(read_files(tmp_path, p.files()), target="pipeline")
+    view = next(t for path, t in bundle.files.items() if "pipeline/" in path and "`x`" in t)
+    assert "CAST('${dku_min_amount}' AS BIGINT)" in view
+    assert ":dku_min_amount" not in view
+
+
+def test_pipeline_checks_run_after_the_pipeline(tmp_path: Path) -> None:
+    p = mf.build_demo_simple()
+    next(d for d in p.datasets if d["name"] == "customer_stats")["checks"] = [
+        {"type": "recordCountInRange", "minimum": 1, "maximum": None, "id": "chk"}
+    ]
+    bundle = generate_job_bundle(read_files(tmp_path, p.files()), target="pipeline")
+    assert "ASSERT_TRUE" in bundle.files["src/pipeline_checks.sql"]
+    job = yaml.safe_load(bundle.files["resources/jobs.yml"])["resources"]["jobs"][
+        "dku2dbx_demo_simple_job"
+    ]
+    checks = next(t for t in job["tasks"] if t["task_key"] == "pipeline_checks")
+    assert checks["depends_on"] == [{"task_key": "pipeline"}]
+
+
+_VIEW = re.compile(r"^CREATE OR REFRESH MATERIALIZED VIEW `([^`]+)` AS\n(.*);$", re.S)
+
+
+@pytest.mark.spark
+def test_demo_simple_pipeline_runs_end_to_end_on_spark(spark: Any) -> None:
+    d0, d1, d2 = (datetime(2026, 1, day) for day in (1, 2, 3))
+    orders = "order_id long, customer_id long, order_date timestamp, amount double, status string"
+    spark.createDataFrame(
+        [(1, 10, d1, 10.004, "NEW"), (2, 10, d2, 5.0, "CANCELLED"), (3, 20, d1, 7.5, None)], orders
+    ).createOrReplaceTempView("orders_raw")
+    spark.createDataFrame([(9, 10, d0, 3.0, "OLD")], orders).createOrReplaceTempView(
+        "orders_archive"
+    )
+    spark.createDataFrame(
+        [(10, "Ann", "B2B"), (20, "Bob", "B2C")], "customer_id long, name string, segment string"
+    ).createOrReplaceTempView("customers")
+    bundle = _pipeline("DEMO_SIMPLE")
+    pipeline = yaml.safe_load(bundle.files["resources/pipeline.yml"])["resources"]["pipelines"]
+    [definition] = pipeline.values()
+    for library in definition["libraries"]:  # in flow order
+        text = bundle.files[library["file"]["path"].removeprefix("../")]
+        for statement in text.split(";\n"):
+            lines = statement.splitlines()
+            body = "\n".join(line for line in lines if not line.startswith("--")).strip()
+            if body:
+                match = _VIEW.match(body + ";")
+                assert match, body[:60]
+                spark.sql(match.group(2)).createOrReplaceTempView(match.group(1))
+    # same expected values as target A (computed by hand)
+    stats = sorted(tuple(r) for r in spark.table("customer_stats").collect())
+    assert stats == [(10, 2, 10.0, 10.0), (20, 1, 7.5, 7.5)]
+
+
+def test_cli_generate_pipeline(tmp_path: Path) -> None:
+    export = str(DEFAULT_OUT_DIR / "DEMO_SIMPLE.zip")
+    result = CliRunner().invoke(
+        app, ["generate", export, "--target", "pipeline", "--out", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "resources" / "pipeline.yml").is_file()
+    assert "Cible B" in (tmp_path / "GENERATION.md").read_text()
+    result = CliRunner().invoke(app, ["generate", export, "--target", "other"])
+    assert result.exit_code == 1

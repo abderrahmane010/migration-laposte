@@ -65,6 +65,9 @@ class Bundle:
     """Path in the bundle -> content."""
     steps: list[GeneratedStep]
     scenarios: list[ScenarioJob] = field(default_factory=list)
+    target: str = "job"
+    pipeline_steps: list[str] = field(default_factory=list)
+    """Steps materialized as views of the pipeline (target B)."""
 
 
 def _bundle_name(key: str) -> str:
@@ -316,8 +319,128 @@ def _default(value: object) -> str:
     return str(value)
 
 
-def generate_job_bundle(project: Project, *, fusion: bool = True) -> Bundle:
-    """Target A: every file of the bundle, in memory (written by ``write_bundle``)."""
+def _pipeline_steps(project: Project, flow: SimplifiedFlow, steps: list[GeneratedStep]) -> set[str]:
+    """Steps that can be materialized views of the pipeline (target B, H-54).
+
+    Out of the pipeline: steps not translated, steps writing a partitioned or append
+    table or reading a partition, and every step downstream of one of those (the
+    pipeline runs first, the SQL tasks after it).
+    """
+    translated = {g.step.id for g in steps if g.translated}
+    writer = {out: s.id for s in flow.steps for out in s.outputs}
+    out_of_pipeline: set[str] = set()
+    for step in flow.steps:
+        recipes = [project.recipe(r) for r in step.recipes]
+        special = any(
+            o.append_mode or project.dataset(o.ref).partitioning
+            for r in recipes
+            for o in r.outputs
+            if o.ref in step.outputs
+        ) or any(i.deps for r in recipes for i in r.inputs)
+        upstream = {writer[i.ref] for r in recipes for i in r.inputs if i.ref in writer}
+        if step.id not in translated or special or upstream & out_of_pipeline:
+            out_of_pipeline.add(step.id)
+    return {s.id for s in flow.steps} - out_of_pipeline
+
+
+def _pipeline_query(query: exp.Query) -> exp.Query:
+    """Pipelines read their configuration as ${key}: a job parameter :x becomes '${x}'."""
+
+    def swap(node: exp.Expr) -> exp.Expr:
+        if isinstance(node, exp.Placeholder) and node.name:
+            return exp.Literal.string(f"${{{node.name}}}")
+        return node
+
+    result = query.transform(swap)
+    if not isinstance(result, exp.Query):
+        raise TypeError("unexpected transform result")
+    return result
+
+
+def generate_pipeline_files(
+    builder: _StepBuilder, flow: SimplifiedFlow, pipeline_ids: set[str], header: str
+) -> tuple[dict[str, str], list[str]]:
+    """One SQL file of materialized views per pipeline step, and the checks cells."""
+    files: dict[str, str] = {}
+    checks: list[str] = []
+    for step in flow.steps:
+        if step.id not in pipeline_ids:
+            continue
+        statements = [_comment([*builder.header(step), header])]
+        for dataset in step.outputs:
+            query = _pipeline_query(builder._query(dataset, set(step.inlined)))
+            view = exp.Create(
+                this=table(dataset), kind="MATERIALIZED VIEW", expression=query, replace=False
+            )
+            sql = view.sql(dialect=DIALECT, pretty=True).replace(
+                "CREATE MATERIALIZED VIEW", "CREATE OR REFRESH MATERIALIZED VIEW", 1
+            )
+            statements.append(sql + ";")
+            checks += builder._checks(dataset)
+        files[f"src/pipeline/{step.id}.sql"] = "\n\n".join(statements) + "\n"
+    return files, checks
+
+
+def _job_tasks(
+    step_ids: list[str],
+    deps: dict[str, list[str]],
+    pipeline_ids: set[str],
+    pipeline_key: str,
+    has_checks: bool,
+) -> list[dict[str, Any]]:
+    """Tasks of a job running ``step_ids``: schema, then pipeline (B), then SQL tasks."""
+    kept = set(step_ids)
+    result_tasks: list[dict[str, Any]] = [
+        {"key": SCHEMA_TASK, "depends_on": [], "notebook": "../src/00_prepare_schema.sql"}
+    ]
+    upstream_tasks = [SCHEMA_TASK]
+    if kept & pipeline_ids:
+        result_tasks.append(
+            {"key": "pipeline", "depends_on": [SCHEMA_TASK], "pipeline": pipeline_key}
+        )
+        upstream_tasks.append("pipeline")
+        if has_checks:
+            result_tasks.append(
+                {
+                    "key": "pipeline_checks",
+                    "depends_on": ["pipeline"],
+                    "notebook": "../src/pipeline_checks.sql",
+                }
+            )
+    for sid in step_ids:
+        if sid in pipeline_ids:
+            continue
+        # A SQL task runs after the pipeline (it may read its views) and after the
+        # SQL tasks it reads; pipeline steps are covered by the "pipeline" task.
+        notebook_deps = [d for d in deps[sid] if d in kept and d not in pipeline_ids]
+        result_tasks.append(
+            {
+                "key": sid,
+                "depends_on": [*upstream_tasks, *notebook_deps],
+                "notebook": f"../src/{sid}.sql",
+            }
+        )
+    return result_tasks
+
+
+def _checks_notebook(header: str, checks: list[str]) -> str:
+    cells = [
+        NOTEBOOK_HEADER + "\n" + _comment([header, "Checks of the pipeline views."]),
+        "USE CATALOG IDENTIFIER(:catalog);",
+        "USE SCHEMA IDENTIFIER(:schema);",
+        *checks,
+    ]
+    return CELL.join(cells) + "\n"
+
+
+def generate_job_bundle(project: Project, *, fusion: bool = True, target: str = "job") -> Bundle:
+    """Every file of the bundle, in memory (written by ``write_bundle``).
+
+    ``target="job"`` (A): a job of SQL notebooks. ``target="pipeline"`` (B): a Lakeflow
+    pipeline of materialized views, run by the job before the SQL tasks it cannot hold.
+    """
+    if target not in ("job", "pipeline"):
+        raise GenerateError(f"unknown target {target!r}")
     params = _variables(project)
     # Formulas read the variables as job parameters (:dku_<name>), typed by their value.
     as_parameters = project.model_copy(update={"variables": {**project.variables, **params}})
@@ -335,26 +458,26 @@ def generate_job_bundle(project: Project, *, fusion: bool = True) -> Bundle:
         )
         + "\n",
     }
+    name = _bundle_name(project.key)
+    pipeline_key = f"{name}_pipeline"
+    pipeline_ids = _pipeline_steps(project, flow, steps) if target == "pipeline" else set()
+    if pipeline_ids:
+        pipeline_files, pipeline_checks = generate_pipeline_files(
+            builder, flow, pipeline_ids, header
+        )
+        files.update(pipeline_files)
+        if pipeline_checks:
+            files["src/pipeline_checks.sql"] = _checks_notebook(header, pipeline_checks)
     for generated in steps:
-        files[f"src/{generated.step.id}.sql"] = generated.notebook
+        if generated.step.id not in pipeline_ids:
+            files[f"src/{generated.step.id}.sql"] = generated.notebook
     deps = _depends_on(flow, project)
 
     def tasks(step_ids: list[str]) -> list[dict[str, Any]]:
-        kept = set(step_ids)
-        result_tasks = [
-            {"key": SCHEMA_TASK, "depends_on": [], "notebook": "../src/00_prepare_schema.sql"}
-        ]
-        result_tasks += [
-            {
-                "key": sid,
-                "depends_on": [d for d in deps[sid] if d == SCHEMA_TASK or d in kept],
-                "notebook": f"../src/{sid}.sql",
-            }
-            for sid in step_ids
-        ]
-        return result_tasks
+        return _job_tasks(
+            step_ids, deps, pipeline_ids, pipeline_key, "src/pipeline_checks.sql" in files
+        )
 
-    name = _bundle_name(project.key)
     scenarios = scenario_jobs(project, flow, name)
     jobs: list[dict[str, Any]] = [
         {
@@ -419,7 +542,23 @@ def generate_job_bundle(project: Project, *, fusion: bool = True) -> Bundle:
         "databricks.yml.j2", header=header, bundle_name=name, variables=variables
     )
     files["resources/jobs.yml"] = render("job.yml.j2", header=header, jobs=jobs)
-    bundle = Bundle(project=project.key, files=files, steps=steps, scenarios=scenarios)
+    if pipeline_ids:
+        files["resources/pipeline.yml"] = render(
+            "pipeline.yml.j2",
+            header=header,
+            key=pipeline_key,
+            name=f"[dku2dbx] {project.key}",
+            configuration={p.name: f"${{var.{p.name}}}" for p in params.values()},
+            libraries=[f"../src/pipeline/{s.id}.sql" for s in flow.steps if s.id in pipeline_ids],
+        )
+    bundle = Bundle(
+        project=project.key,
+        files=files,
+        steps=steps,
+        scenarios=scenarios,
+        target=target,
+        pipeline_steps=sorted(pipeline_ids),
+    )
     files["GENERATION.md"] = generation_report(project, bundle, params, partitioned)
     return bundle
 
@@ -446,7 +585,13 @@ def generation_report(
     lines = [
         f"# Bundle dku2dbx — {project.key}",
         "",
-        f"Généré par dku2dbx {__version__}. Cible A : job de notebooks SQL.",
+        f"Généré par dku2dbx {__version__}. "
+        + (
+            "Cible A : job de notebooks SQL."
+            if bundle.target == "job"
+            else f"Cible B : pipeline Lakeflow ({len(bundle.pipeline_steps)} étape(s) en vues "
+            "matérialisées), puis tâches SQL pour les étapes hors pipeline."
+        ),
         "",
         "## Synthèse",
         "",

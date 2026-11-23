@@ -295,6 +295,19 @@ Phase 5 validée par le responsable le 2026-11-23. Décision : une table **const
 
 - **Partitions** (H-53) : colonne `DATE` de partition, `CREATE TABLE IF NOT EXISTS` puis `INSERT INTO … REPLACE WHERE`, entrées « même jour » lues sur la seule partition construite ; paramètres `date`, `date_offset`, `timezone` (le job de scénario reprend le fuseau et le décalage `PREVIOUS_DAY`) ; partitionnements et dépendances non traduits → étape à migrer à la main. Testé sur PySpark avec des paramètres nommés.
 
-### Reste à faire
+- **Cible B** (H-54) : pipeline Lakeflow serverless de vues matérialisées (un fichier SQL par étape), variables lues dans la `configuration` du pipeline ; étapes partitionnées, en append, non traduites et leur aval en tâches SQL après le pipeline ; checks des vues dans une tâche dédiée. `DEMO_SIMPLE` tient entièrement dans le pipeline.
 
-- Cible B : Lakeflow pipeline.
+### Résultats
+
+- `uv run pytest` : **394 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critères de fin de phase :
+  - le bundle de `DEMO_SIMPLE` (et de `DEMO_COMPLEXE`) passe la validation de schéma locale, pour les deux cibles (`databricks.yml`, jobs, pipeline) ;
+  - le SQL généré parse avec `sqlglot` ;
+  - un test de bout en bout exécute les étapes de `DEMO_SIMPLE` sur PySpark local, pour la cible A (dans l'ordre du job) et pour la cible B (dans l'ordre du pipeline), résultats calculés à la main.
+- Pièges couverts : dates et fuseau (date de partition calculée dans le fuseau du job), ordre de lecture, partitions.
+
+### Points ouverts
+
+- **Rien n'a encore tourné sur un workspace Databricks** : `databricks bundle validate` et un déploiement réel restent à faire dès qu'un bac à sable est disponible (H-50, H-54).
+- Le projet réel : périodes et dépendances de ses 24 partitions à relever (structure anonymisée) ; scénarios à `run_scenario`, `clear_items`, `sync_hive` encore MANUAL.
+- Sources partitionnées : elles devront avoir la colonne de date une fois branchées (phase 7).
