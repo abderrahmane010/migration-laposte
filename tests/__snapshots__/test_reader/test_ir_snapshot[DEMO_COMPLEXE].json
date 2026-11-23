@@ -3,7 +3,7 @@
     "generator": "dku2dbx",
     "generator_version": "0.0.1",
     "source_file": "DEMO_COMPLEXE.zip",
-    "source_sha256": "edfc74d080bfa1a441da79ad7a471ffe73a24d7d1b38f3a876cbd3e87ed944ee"
+    "source_sha256": "79dba009b745f451a61c98495c1272185d5cc7ed8947b4459f63211c98f539c2"
   },
   "project": {
     "datasets": [
@@ -29,7 +29,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -64,7 +64,7 @@
         "partitioning": [],
         "raw": null,
         "source_path": "project_config/datasets/anomalies_clean.json",
-        "source_sha256": "d0663b0f667067e3c6fb4a49335cf187151fdc7907fa8de791dab99ba0a5ce25",
+        "source_sha256": "dac5c1c4f3ec91e1fcdf094aa1f1ca15b52f0d24d64294de2b77436b341e922e",
         "status": "KNOWN",
         "table": "${projectKey}_anomalies_clean",
         "table_resolved": "DEMO_COMPLEXE_anomalies_clean",
@@ -89,7 +89,7 @@
           },
           {
             "name": "last_anomaly_ts",
-            "type": "timestamp"
+            "type": "date"
           }
         ],
         "connection": "pg_managed",
@@ -108,7 +108,7 @@
         "partitioning": [],
         "raw": null,
         "source_path": "project_config/datasets/anomaly_report.json",
-        "source_sha256": "6d16f358ea70a81b5e130bef73d2546d1e0f6baabe6e38f042116779d8840499",
+        "source_sha256": "86f091ab5d71cef4986dcf321e2a729a59ebe27dab5c7edfbf65987c96498336",
         "status": "KNOWN",
         "table": "${projectKey}_anomaly_report",
         "table_resolved": "DEMO_COMPLEXE_anomaly_report",
@@ -364,7 +364,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -407,7 +407,7 @@
         "partitioning": [],
         "raw": null,
         "source_path": "project_config/datasets/delivered_enriched.json",
-        "source_sha256": "7d493ce49147fcba9b5c76f0b0bf65a677f919177be2bf5c202845808f6ccef8",
+        "source_sha256": "94a94b214d9f4c30e078e8b8546d3a9df66d3d9cbeca4004e774b836379b24e4",
         "status": "KNOWN",
         "table": "${projectKey}_delivered_enriched",
         "table_resolved": "DEMO_COMPLEXE_delivered_enriched",
@@ -436,7 +436,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -475,7 +475,7 @@
         "partitioning": [],
         "raw": null,
         "source_path": "project_config/datasets/delivered_routes.json",
-        "source_sha256": "27be7d25afb80192ebb8784145b68cfddba436c6a0fe92dab5d56d53eeca211d",
+        "source_sha256": "d1fa8e0948102fa7f8db84ed7e1e5f5c9305452911f8d8186ff41c169e8ef164",
         "status": "KNOWN",
         "table": "${projectKey}_delivered_routes",
         "table_resolved": "DEMO_COMPLEXE_delivered_routes",
@@ -784,7 +784,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -823,7 +823,7 @@
         "partitioning": [],
         "raw": null,
         "source_path": "project_config/datasets/events_anomalies.json",
-        "source_sha256": "e1c5e4659394bb2175549703db78bec414c5fbb0972eefb57ae22164768f7ef0",
+        "source_sha256": "55f6b6f28aecc0b3fce4ef49a6677340c17151294521d4f99c5188335d04aa31",
         "status": "KNOWN",
         "table": "${projectKey}_events_anomalies",
         "table_resolved": "DEMO_COMPLEXE_events_anomalies",
@@ -852,7 +852,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -895,7 +895,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/events_clean.json",
-        "source_sha256": "ea5c86e71ac8ac35ca53c44472e09f966907317b4658b0d782902bef6fac7440",
+        "source_sha256": "3a9f065ab696acaa0b2582cb06fb784584aab3f74c137ff019daf630473c9cb2",
         "status": "KNOWN",
         "table": "${projectKey}_events_clean",
         "table_resolved": "DEMO_COMPLEXE_events_clean",
@@ -924,7 +924,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -967,7 +967,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/events_delivered.json",
-        "source_sha256": "c2966ef1be0ec338d04c1f206e3f2d8c16a3a91c4f8d3ce7445439d6422851e9",
+        "source_sha256": "4345f11f5efbbf4b0ce9dd1ecbe6aa8b3c2b2782f1dd86f3d9b2e28d5aecdb33",
         "status": "KNOWN",
         "table": "${projectKey}_events_delivered",
         "table_resolved": "DEMO_COMPLEXE_events_delivered",
@@ -996,7 +996,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -1039,7 +1039,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/events_failed.json",
-        "source_sha256": "6bc633786675aa33193d235fe2c9d0bb70341f504bdba228385cc8e69bb58a24",
+        "source_sha256": "8cf4e0e6bf621167136ceab927e499e66e7b745d734eff7c6adabe7f56eb6b12",
         "status": "KNOWN",
         "table": "${projectKey}_events_failed",
         "table_resolved": "DEMO_COMPLEXE_events_failed",
@@ -1068,7 +1068,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -1111,7 +1111,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/events_other.json",
-        "source_sha256": "31826ce34371f8ef148ba940c9f35cd6e8703f8b8803d7608a5ab6a8b9bce009",
+        "source_sha256": "065c6f2bcf09465eff94e6e5a6e5e2a5773a7a6bfe8eccc45ad494eb7505e241",
         "status": "KNOWN",
         "table": "${projectKey}_events_other",
         "table_resolved": "DEMO_COMPLEXE_events_other",
@@ -1140,7 +1140,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -1183,7 +1183,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/events_sync.json",
-        "source_sha256": "cd546b27115d9b772a6de68c4c128a549aed09da4f60b04a043866d7b9fa373d",
+        "source_sha256": "d3c6549fd45ef4978aa35491fc1be1fba6a77ddab3ce6956074954ed0eb10c68",
         "status": "KNOWN",
         "table": "${projectKey}_events_sync",
         "table_resolved": "DEMO_COMPLEXE_events_sync",
@@ -1212,7 +1212,7 @@
           },
           {
             "name": "event_ts",
-            "type": "timestamp"
+            "type": "date"
           },
           {
             "name": "status",
@@ -1255,7 +1255,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/parcels_events.json",
-        "source_sha256": "bcba1f58a0c091810f71e194d94e48b0b385e555e260c9e3ecaf374bdcf2e4df",
+        "source_sha256": "19c8fc297e9cba7757e3e57c7ac7b9b7ebc4f41aa3eeda48bf39970be06c1ced",
         "status": "KNOWN",
         "table": "${NODE_DC}_parcels_events",
         "table_resolved": "${NODE_DC}_parcels_events",
@@ -2376,7 +2376,7 @@
             {
               "name": "event_ts",
               "table": 0,
-              "type": "timestamp"
+              "type": "date"
             },
             {
               "name": "status",
@@ -2536,7 +2536,7 @@
             {
               "name": "event_ts",
               "table": 0,
-              "type": "timestamp"
+              "type": "date"
             },
             {
               "name": "status",

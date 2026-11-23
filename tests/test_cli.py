@@ -15,7 +15,7 @@ from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 runner = CliRunner()
 
 COMMANDS = ["analyze", "simplify", "translate", "generate", "connect", "reconcile"]
-PLACEHOLDERS = ["generate", "connect", "reconcile"]
+PLACEHOLDERS = ["connect", "reconcile"]
 
 
 def test_help_lists_all_commands() -> None:

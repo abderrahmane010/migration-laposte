@@ -1,0 +1,24 @@
+# {{ header }}
+resources:
+  jobs:
+    {{ job_key }}:
+      name: {{ job_name | tojson }}
+      description: {{ description | tojson }}
+      max_concurrent_runs: 1
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+      tasks:
+{%- for task in tasks %}
+        - task_key: {{ task.key | tojson }}
+{%- if task.depends_on %}
+          depends_on:
+{%- for dep in task.depends_on %}
+            - task_key: {{ dep | tojson }}
+{%- endfor %}
+{%- endif %}
+          notebook_task:
+            notebook_path: {{ task.notebook | tojson }}
+{%- endfor %}

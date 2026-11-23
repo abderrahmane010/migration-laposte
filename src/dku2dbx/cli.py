@@ -19,6 +19,7 @@ from dku2dbx.analyze.portfolio import analyze_portfolio
 from dku2dbx.analyze.report import write_outputs
 from dku2dbx.analyze.scoring import load_scoring
 from dku2dbx.errors import ExportReadError, ScoringConfigError
+from dku2dbx.generate.bundle import GenerateError, generate_job_bundle, write_bundle
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import ZipExportReader
 from dku2dbx.simplify.flow import SimplifyError, simplify_flow
@@ -198,9 +199,34 @@ def translate(
 
 
 @app.command()
-def generate() -> None:
-    """Migrer : générer notebooks, pipelines, jobs et bundle (phase 6)."""
-    _not_implemented("generate", 6)
+def generate(
+    export: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    ),
+    target: str = typer.Option("job", "--target", help="job (notebooks SQL) ou pipeline."),
+    out: Path | None = typer.Option(
+        None, "--out", help="Dossier du bundle (défaut : out/<projet>/bundle)."
+    ),
+    no_fusion: bool = typer.Option(False, "--no-fusion", help="Une étape par recette."),
+) -> None:
+    """Migrer : générer le bundle Databricks (job de notebooks SQL) (phase 6)."""
+    if target != "job":
+        _not_implemented(f"generate --target {target}", 6)
+    try:
+        project = ZipExportReader(export).read()
+        bundle = generate_job_bundle(project, fusion=not no_fusion)
+    except (ExportReadError, SimplifyError, GenerateError) as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    target_dir = out or Path("out") / project.key / "bundle"
+    write_bundle(bundle, target_dir)
+    manual = [g for g in bundle.steps if not g.translated]
+    typer.echo(
+        f"Projet {project.key} : bundle de {len(bundle.steps)} étape(s) dans {target_dir}, "
+        f"dont {len(manual)} à migrer à la main (notebook qui échoue explicitement)."
+    )
+    for g in manual:
+        typer.echo(f"  - {g.step.id} : {'; '.join(g.reasons)}")
 
 
 @app.command()

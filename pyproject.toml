@@ -28,6 +28,7 @@ dev = [
     "pre-commit>=3.8",
     "types-networkx>=3.6.1.20261119",
     "types-pyyaml>=6.0",
+    "jsonschema>=4.23",
 ]
 
 [build-system]
@@ -40,6 +41,7 @@ packages = ["src/dku2dbx"]
 # The default scoring grid ships with the package (used when config/ is absent).
 [tool.hatch.build.targets.wheel.force-include]
 "config/scoring.yaml" = "dku2dbx/default_scoring.yaml"
+"templates" = "dku2dbx/templates"
 
 # --- ruff -------------------------------------------------------------------
 [tool.ruff]

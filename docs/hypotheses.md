@@ -101,3 +101,9 @@ Le projet a été lu via l'API par le pont `dku2dbx_bridge` (dépôt `agentic_pr
 | ID | Hypothèse | Source | Fixture / test | Statut |
 |---|---|---|---|---|
 | H-49 | Un scénario lit ou construit un dataset via `params.builds[].itemId` (type `DATASET`) d'une step, ou `params.datasetName` d'un déclencheur ; ce dataset reste matérialisé | supposée (forme H-15, H-15a) | `test_each_keep_rule` | SUPPOSÉE |
+
+### Hypothèses ajoutées par la phase 6 (bundle)
+
+| ID | Hypothèse | Source | Fixture / test | Statut |
+|---|---|---|---|---|
+| H-50 | Un notebook SQL lit les paramètres du job comme marqueurs nommés (`:catalog`, `:schema`) ; une tâche notebook sans cluster tourne sur le calcul serverless ; `USE CATALOG IDENTIFIER(:catalog)` puis `USE SCHEMA` rendent les noms de tables non qualifiés relatifs au schéma cible | documentation Databricks, **à vérifier sur un workspace** | `tests/test_generate.py` | SUPPOSÉE |

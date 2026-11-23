@@ -1,0 +1,32 @@
+# {{ header }}
+bundle:
+  name: {{ bundle_name | tojson }}
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: "Catalogue Unity Catalog des tables produites (à renseigner par target)"
+  schema:
+    description: "Schéma Unity Catalog des tables produites (à renseigner par target)"
+  admin_group:
+    description: "Groupe qui administre le job"
+    default: "[GROUPE_ADMIN]"
+
+permissions:
+  - level: CAN_MANAGE
+    group_name: ${var.admin_group}
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: "[CATALOG_DEV]"
+      schema: "[SCHEMA_DEV]"
+  prod:
+    mode: production
+    variables:
+      catalog: "[CATALOG_PROD]"
+      schema: "[SCHEMA_PROD]"

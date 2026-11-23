@@ -270,3 +270,26 @@ Phase 5 validée par le responsable le 2026-11-23. Décision : une table **const
 
 - Réunir le pont `dku2dbx_bridge` (dépôt `agentic_projet`) dans `dku2dbx`, comme implémentation de `DataikuApiReader` (interface de la phase 1), avec une commande `dku2dbx export-api`.
 - Ajouter une commande `dku2dbx migrate <projet>` qui enchaîne les étapes et regroupe les sorties dans un dossier unique par projet, avec un `RAPPORT.md` de synthèse. Hors ROADMAP actuelle : à y inscrire (phase 9 ou pilote) si le responsable le décide.
+
+## Phase 6 — Générateurs de code et bundle (démarrée le 2026-11-23)
+
+### Décisions prises avec le responsable
+
+- **Cibles** : A (job de notebooks SQL) d'abord, puis B (Lakeflow pipeline), dans la même phase.
+- **Validation** : locale, contre le schéma JSON officiel des bundles extrait de la CLI Databricks 1.24.0 (version de plus de deux semaines, sommes de contrôle vérifiées ; `databricks bundle schema`, sans connexion à un workspace). Schéma versionné compressé dans `tests/schemas/`. Deux adaptations documentées : les motifs `\p{…}` (inconnus du `re` de Python) sont écartés, et les `oneOf` du schéma, dont les branches se chevauchent, sont lus comme `anyOf` ; un test vérifie que le schéma adapté rejette toujours les erreurs.
+- **Catalogue et schéma** : variables du bundle, valeurs fictives explicites (`[CATALOG_DEV]`…), aucun nom réel.
+
+### Avancement (cible A)
+
+- `generate/bundle.py` : un notebook SQL par étape de la phase 5 ; les tables non matérialisées deviennent des CTE (y compris les `WITH` imbriqués des recettes Prepare, validés sur PySpark) ; `CREATE OR REPLACE TABLE … AS`, ou `CREATE TABLE IF NOT EXISTS` + `INSERT INTO` en mode append ; `USE CATALOG` / `USE SCHEMA` sur les paramètres du job (H-50) ; en-tête de traçabilité (recettes, SHA-256, avertissements). Une étape non traduite (code, ML, refus, type de colonne inconnu) devient un notebook qui échoue explicitement (`raise_error`) : le job reste complet.
+- Job : une tâche de préparation du schéma, puis une tâche par étape, `depends_on` tiré du Flow. `databricks.yml` : targets `dev` / `prod`, variables, permissions. YAML écrit par des templates `jinja2` (`templates/`, livrés dans le paquet), chaque valeur passée par `tojson`.
+- CLI : `dku2dbx generate <export.zip> [--target job] [--out] [--no-fusion]` (`--target pipeline` : pas encore).
+- Tests : schéma officiel, cellules SQL relues par `sqlglot`, reproductibilité, notebooks qui échouent, mode append, et **exécution de bout en bout de `DEMO_SIMPLE` sur PySpark** dans l'ordre du job, résultats calculés à la main.
+- Fixture : le type `timestamp` (inventé) remplacé par le type Dataiku `date`.
+- Bug trouvé en cours de route : `sqlglot` range la clause `WITH` sous la clé `with_` ; les CTE disparaissaient en silence, l'exécution de bout en bout l'aurait détecté.
+
+### Reste à faire
+
+- Scénarios → `schedule` et triggers ; variables de projet → paramètres ; checks → contrôles SQL.
+- Partitions : colonne de date et `INSERT INTO … REPLACE WHERE`, paramètre de date du job (UTC / Paris).
+- Cible B : Lakeflow pipeline.

@@ -681,7 +681,7 @@ def build_demo_complexe() -> Project:
         "parcel_id:string",
         "depot_id:int",
         "customer_id:bigint",
-        "event_ts:timestamp",
+        "event_ts:date",  # Dataiku "date" = date and time
         "status:string",
         "delay_minutes:int",
         "amount_eur:double",
@@ -791,9 +791,7 @@ def build_demo_complexe() -> Project:
     ds("anomalies_clean", ev + columns("status_norm:string"))
     ds(
         "anomaly_report",
-        columns(
-            "depot_id:int", "depot_name:string", "anomalies:bigint", "last_anomaly_ts:timestamp"
-        ),
+        columns("depot_id:int", "depot_name:string", "anomalies:bigint", "last_anomaly_ts:date"),
         zone="z_kpi",
     )
     ds("customer_scores", columns("customer_id:bigint", "score:double", "is_good:boolean"))
