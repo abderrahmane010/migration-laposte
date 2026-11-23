@@ -263,3 +263,10 @@ Phase 4 validée par le responsable le 2026-11-23 (format des processeurs du pro
 
 - `DEMO_COMPLEXE` fusionne peu (presque toutes ses tables sont partitionnées, lues plusieurs fois ou touchent une recette non `AUTO`) : le gain réel se mesurera sur les vrais projets.
 - Les étapes sont prêtes pour la génération (phase 6) : une étape écrit ses tables matérialisées, ses tables supprimées y deviennent des CTE.
+
+Phase 5 validée par le responsable le 2026-11-23. Décision : une table **construite** par un scénario (step « build ») reste matérialisée, comme une table lue par un scénario (extension de la règle de la ROADMAP, H-49). Projet réel : 45 recettes → 44 étapes (projet de diagnostic, sans longues chaînes ; 32 tables retenues par un scénario).
+
+### Décisions à prendre en fin de phase 9 (notées le 2026-11-23, rien n'est fait)
+
+- Réunir le pont `dku2dbx_bridge` (dépôt `agentic_projet`) dans `dku2dbx`, comme implémentation de `DataikuApiReader` (interface de la phase 1), avec une commande `dku2dbx export-api`.
+- Ajouter une commande `dku2dbx migrate <projet>` qui enchaîne les étapes et regroupe les sorties dans un dossier unique par projet, avec un `RAPPORT.md` de synthèse. Hors ROADMAP actuelle : à y inscrire (phase 9 ou pilote) si le responsable le décide.
