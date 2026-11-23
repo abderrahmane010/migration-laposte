@@ -108,3 +108,55 @@ Les snapshots d'IR ne changent que par le champ vide `saved_models`. Résultats 
 Vérifié sur le projet réel après correction : 2 modèles enregistrés lus, et **aucune anomalie** `dku2dbx`. Seule reste l'erreur API attendue sur les paramètres du projet (droit d'administration).
 
 Il reste à faire : les dossiers gérés (managed folders) ne sont pas encore modélisés. Ils produiraient le même type de référence manquante, mais aucun n'a été rencontré.
+
+Phase 1 validée par le responsable le 2026-11-23, après vérification sur un projet réel lu via l'API.
+
+## Phase 2 — Analyse, inventaire, score et vagues (2026-11-23)
+
+### Décisions prises avec le responsable
+
+- **Classe cible + état** : chaque recette reçoit la classe que la ROADMAP prévoit pour son type, plus un indicateur « traducteur disponible » (faux partout aujourd'hui). L'effort se calcule sur la classe cible. Les phases 3 et 4 ajouteront leurs types à `AVAILABLE_TRANSLATORS` (`analyze/classify.py`) : le classement se met à jour seul.
+- **Recettes de code SQL** (`sql_query`, `sql_script`, `hive`, `impala`, `spark_sql_query`) : `LLM_REVIEW`, faute de traducteur prévu dans la ROADMAP. Une traduction déterministe par `sqlglot` pourra les faire passer en `AUTO` plus tard.
+- **Seuils et effort** : valeurs de départ proposées dans `config/scoring.yaml`, toutes « à calibrer sur le pilote ».
+
+### Classes fixées par la ROADMAP ou par moi, à relire
+
+| Classe | Types | Origine |
+|---|---|---|
+| `AUTO`, phase 3 | `sync`, `sampling` (Sample/Filter), `distinct`, `vstack`, `join`, `grouping`, `window`, `split`, `sort`, `topn`, `pivot` | ROADMAP phase 3 |
+| `AUTO`, phase 4 | `shaker` (Prepare) | ROADMAP phase 4 |
+| `LLM_REVIEW`, phase 8 | `python`, `pyspark` | ROADMAP phase 8 |
+| `LLM_REVIEW`, phase 8 | SQL de code (ci-dessus) | décision du 2026-11-23 |
+| `LLM_REVIEW`, phase 8 | `fuzzyjoin`, `upsert` | **mon choix** : pas de traducteur prévu ; pour le fuzzy join, `pieges_semantiques.md` propose `LLM_REVIEW` ou `MANUAL` |
+| `MANUAL` | `r`, `sparkr`, `spark_scala`, `shell`, recettes ML, plugins | ROADMAP (hors périmètre v1) |
+| `MANUAL` | `geojoin`, `download`, `export`, `merge_folder`, type inconnu | **mon choix** : aucun traducteur prévu |
+
+Une recette qui serait `AUTO` passe en `MANUAL`, avec son motif, si son payload est inexploitable, si un Prepare contient un processeur à référentiel (H-27) ou une step de `metaType` inconnu.
+
+### Réalisé
+
+- `analyze/model.py` : résultats sérialisables (classement, conditions atteintes, liens entre projets, catalogue, vagues).
+- `analyze/classify.py` : classe cible, phase prévue, traducteur disponible et motif de chaque recette.
+- `analyze/inventory.py` : comptages, mesures du score, processeurs actifs, steps désactivées (une step d'un groupe désactivé l'est aussi), liens avec d'autres projets vus depuis l'export (entrées `PROJET.dataset`, `foreignObjects`, `exposedObjects`).
+- `analyze/scoring.py` : lecture et validation de `scoring.yaml` (un niveau, une mesure ou une classe inconnus sont des erreurs) ; niveau = le plus élevé dont une condition est atteinte ; effort = jours par classe + forfait par scénario. La grille est livrée avec le paquet, pour fonctionner hors du dépôt (pont `agentic_projet`).
+- `analyze/portfolio.py` : catalogue des processeurs (trié par occurrences) et vagues (composantes fortement connexes regroupées, producteurs avant consommateurs ; liens hors portefeuille listés à part).
+- `analyze/report.py` : `analyse.md`/`.json`, `portefeuille.csv`, `vagues.md`, `catalogue_processeurs.md`/`.csv`, reproductibles octet pour octet.
+- CLI : `dku2dbx analyze <zip|dossier> [--out] [--dump-ir] [--scoring]`. Un export illisible n'arrête pas le portefeuille (code retour 1 à la fin) ; un projet présent deux fois est une erreur.
+- Dépendance ajoutée : `pyyaml`.
+
+### Résultats
+
+- `uv run pytest` : **99 tests passés**, dont 1 snapshot de `analyse.md` de `DEMO_SIMPLE`.
+- Critères de fin de phase :
+  - `dku2dbx analyze tests/fixtures/exports --out out/` produit tous les fichiers ;
+  - les chiffres de `DEMO_SIMPLE` sont vérifiés par test (`test_demo_simple_figures`) : 8 datasets, 5 recettes `AUTO`, niveau LOW, 1,25 jour ;
+  - `DEMO_COMPLEXE` : 16 `AUTO`, 2 `LLM_REVIEW`, 2 `MANUAL`, niveau HIGH (1 plugin), 10,5 jours ; vague 2, après `DEMO_SIMPLE` ;
+  - le catalogue des processeurs est généré.
+- `ruff check`, `ruff format --check` et `mypy --strict` : propres.
+
+### Points ouverts
+
+- **Webapps** : critère de la ROADMAP non mesuré, le lecteur ne les lit pas encore.
+- **Objets partagés** : sur le projet réel, la clé d'API ne peut pas lire `params.json` ; les `exposedObjects` manquent. Les vagues ne reposent alors que sur le côté consommateur (entrées `PROJET.dataset`).
+- **Calibrage** : seuils et jours d'effort à ajuster sur le pilote ; listes H-27 et H-28 à compléter avec le catalogue réel.
+- **Variables d'instance** (`${NODE_DC}`) : toujours pas d'option CLI ; reporté en phase 7.

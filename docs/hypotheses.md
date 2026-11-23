@@ -57,3 +57,11 @@ Le projet a été lu via l'API par le pont `dku2dbx_bridge` (dépôt `agentic_pr
 |---|---|---|---|---|
 | H-25 | Une recette `sync` peut n'avoir aucun payload, ou un payload vide : toute sa configuration est dans sa définition. Pour ce type, l'absence de payload ne lève pas `MISSING_PAYLOAD`, alors qu'elle le lève toujours pour les autres recettes visuelles et de code | constatée via l'API : les 3 recettes `sync` d'un projet réel ont un payload vide. À revérifier sur un vrai export ZIP | `test_sync_recipe_payload_is_optional`, `test_other_visual_recipe_still_needs_a_payload` | CONSTATÉE (API) |
 | H-26 | Les modèles enregistrés sont dans `project_config/saved_models/<id>.json` (`id`, `name`, `savedModelType`, `miniTask.{taskType, predictionType}`, `zone`). Une recette les référence par leur `id`, comme un dataset : en sortie pour l'entraînement, en entrée (rôle `model`) pour le scoring. Ils deviennent des nœuds `saved_model:<id>` du Flow | supposée. Constat sur un projet réel : sans cette modélisation, les entrées des recettes `prediction_scoring` étaient des références manquantes (2 cas) | `test_saved_model_is_read_and_linked_in_the_flow`, `test_undeclared_saved_model_is_still_a_missing_reference` | CONFIRMÉE (API) : 2 modèles lus sur le projet réel, plus aucune référence manquante. Le chemin dans un vrai export ZIP reste à vérifier |
+
+### Hypothèses ajoutées par l'analyse (phase 2)
+
+| ID | Hypothèse | Source | Fixture / test | Statut |
+|---|---|---|---|---|
+| H-27 | Processeurs Prepare qui exigent un référentiel ou un calcul hors SQL (classés `MANUAL`, ROADMAP phase 4 tâche 4) : `ZipCodeGeocoder`, `GeoIPProcessor`, `UserAgentClassifier`. Liste à compléter avec le catalogue | supposée (identifiants DSS non vérifiés) | `DEMO_COMPLEXE/prepare_depots`, `test_demo_complexe_figures` | SUPPOSÉE |
+| H-28 | Processeurs Prepare porteurs d'une formule Dataiku : `CreateColumnWithGREL`, `FilterOnFormula` (mesure `formula_prepares`) | supposée | `test_formula_rich_prepare_and_disabled_group` | SUPPOSÉE |
+| H-29 | Un scénario Python a le type `custom_python` ; un scénario step-based qui exécute du Python a une step de type `custom_python` | supposée | `test_python_scenarios_are_counted` | SUPPOSÉE |
