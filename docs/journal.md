@@ -312,3 +312,5 @@ Phase 5 validée par le responsable le 2026-11-23. Décision : une table **const
 - Le projet réel : périodes et dépendances de ses 24 partitions à relever (structure anonymisée) ; scénarios à `run_scenario`, `clear_items`, `sync_hive` encore MANUAL.
 - Sources partitionnées : elles devront avoir la colonne de date une fois branchées (phase 7).
 - Projet réel (relevé anonyme) : 21 partitions `time`/`DAY` et 20 dépendances `equals` traduites ; **`all_available` ajoutée** (5 dépendances : l'entrée est lue entière). Restent refusées : **3 partitions discrètes `value`** (quelle valeur un job doit-il construire ? à décider au pilote).
+
+Phase 6 validée par le responsable le 2026-11-24. Projet réel : 44 étapes, dont 28 à migrer à la main (23 sans traducteur, 4 refus connus, 1 partition par valeur), 16 générées en SQL Databricks.
