@@ -10,7 +10,7 @@ from dku2dbx import __version__
 from dku2dbx.errors import UnsupportedConstruct
 from dku2dbx.model.ir import Project, Recipe
 from dku2dbx.translate.model import ProjectTranslation, TranslatedOutput, Translation, Unsupported
-from dku2dbx.translate.visual import TRANSLATORS
+from dku2dbx.translate.registry import TRANSLATORS
 
 
 def translate_project(project: Project) -> ProjectTranslation:

@@ -699,9 +699,10 @@ def build_demo_complexe() -> Project:
 
     # Sources
     # ASSUMPTION (H-17): ${NODE_DC} is an instance variable, absent from the export.
+    # The raw events carry an internal flag that prepare_events removes.
     ds(
         "parcels_events",
-        ev,
+        ev + columns("internal_flag:boolean"),
         managed=False,
         connection="hdfs_sources",
         ds_type="HDFS",
@@ -739,7 +740,12 @@ def build_demo_complexe() -> Project:
     )
 
     # Intermediate and final datasets
-    ds("events_sync", ev, day_partitioned=True, zone="z_ingest")
+    ds(
+        "events_sync",
+        ev + columns("internal_flag:boolean"),
+        day_partitioned=True,
+        zone="z_ingest",
+    )
     ds("events_clean", ev + columns("status_norm:string"), day_partitioned=True, zone="z_ingest")
     for n in ("events_delivered", "events_failed", "events_other"):
         ds(n, ev + columns("status_norm:string"), day_partitioned=True)

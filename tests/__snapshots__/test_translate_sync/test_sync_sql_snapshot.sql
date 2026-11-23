@@ -6,5 +6,6 @@ SELECT
   `event_ts`,
   `status`,
   `delay_minutes`,
-  `amount_eur`
+  `amount_eur`,
+  `internal_flag`
 FROM `parcels_events`

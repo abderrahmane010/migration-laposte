@@ -93,7 +93,7 @@ Source : `DEMO_SIMPLE.zip`
 |---|---|---|---|---|
 | group_by_customer | grouping | 3 | oui | — |
 | join_orders_customers | join | 3 | oui | — |
-| prepare_orders | shaker | 4 | non | — |
+| prepare_orders | shaker | 4 | oui | — |
 | stack_orders | vstack | 3 | oui | — |
 | window_orders | window | 3 | oui | — |
 

@@ -215,3 +215,18 @@ Phase 3 validée par le responsable le 2026-11-23, après traduction du projet r
 
 - **Format réel d'abord**, comme en phase 3 : la commande de structure anonymisée du pont couvre maintenant les étapes Prepare (chemins de paramètres par type de processeur) et un recensement des formules (noms de fonctions Dataiku, opérateurs, nombre de littéraux ; jamais le texte d'une formule).
 - **Langage de formules** (`translate/prepare/formula.py`) : grammaire `lark` (H-44), expressions typées (texte, nombre, booléen, date) pour choisir entre addition et concaténation, table explicite de 20 fonctions, variables de projet résolues, colonnes vérifiées à chaque étape. Pièges couverts sur PySpark : arrondi des négatifs, `+` entre chaînes, chaîne vide, division par zéro. Le test Spark de la phase 0 utilise maintenant la session partagée (il l'arrêtait pour les tests suivants).
+- **Recette Prepare** (`translate/prepare/recipe.py`, `processors.py`) : une CTE par étape, schéma suivi d'étape en étape (une formule voit les colonnes créées avant elle), étapes et groupes désactivés ignorés et listés dans l'en-tête, groupes traités explicitement, autre `metaType` refusé. Registre de 7 processeurs dans l'ordre du catalogue (H-47) ; les processeurs à référentiel (H-27) sont refusés avec la cible proposée (UDF Unity Catalog ou opérateur personnalisé). Le registre des traducteurs a été déplacé dans `translate/registry.py` (import circulaire). Fixture corrigée : `prepare_events` retirait une colonne absente de son entrée.
+
+### Résultats (en attente du format réel des processeurs)
+
+- `uv run pytest` : **322 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critères de fin de phase :
+  - processeurs couvrant au moins 80 % des occurrences du catalogue : **atteint sur les fixtures** (12 sur 13, seul `ZipCodeGeocoder`, à référentiel, reste) et sur le projet réel (3 étapes sur 3 : `CreateColumnWithGREL`, `ColumnsSelector`) ; `test_phase_4_end_criterion_catalogue_coverage` ;
+  - chaque recette Prepare des fixtures est traduite (`DEMO_SIMPLE` : 5 recettes sur 5) ou listée avec l'étape non couverte (`prepare_depots` : `ZipCodeGeocoder`, MANUAL) ;
+  - `docs/pieges_semantiques.md` à jour : arrondi des négatifs, `+` entre chaînes, chaîne vide, division par zéro, steps groupées.
+
+### Points ouverts
+
+- **Format réel des paramètres des processeurs (H-47)** : non relevé. Le relevé du projet de diagnostic (3 étapes) le confirmera en partie ; un projet riche en Prepare est nécessaire pour un catalogue représentatif.
+- **Fonctions de formule** : 20 fonctions traduites ; le recensement anonyme du projet réel dira lesquelles ajouter (dates, conversions…). `DateParser` et les formats de date (piège « Patterns de date ») restent à faire.
+- **NULL dans `+`** (H-46) et `substring` (H-45) à vérifier sur Dataiku.

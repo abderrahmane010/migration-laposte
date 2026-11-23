@@ -13,7 +13,8 @@ from collections.abc import Callable, Iterator
 from dku2dbx.analyze.model import RecipeClassification, TargetClass
 from dku2dbx.model.ir import IssueKind, PrepareStep, Project, Recipe, RecipeCategory, Status
 from dku2dbx.reader.known_types import CODE_RECIPE_TYPES, GROUP_META_TYPE, PROCESSOR_META_TYPE
-from dku2dbx.translate.visual import TRANSLATORS
+from dku2dbx.translate.prepare.processors import MANUAL_PROCESSORS
+from dku2dbx.translate.registry import TRANSLATORS
 
 # Recipe types whose deterministic translator exists: read from the translator
 # registry, so the classification updates itself as phases 3 and 4 add translators.
@@ -48,9 +49,6 @@ MANUAL_CODE_TYPES = CODE_RECIPE_TYPES - LLM_CODE_TYPES
 # folders or geometry -> by hand.
 LLM_VISUAL_TYPES = frozenset({"fuzzyjoin", "upsert"})
 
-# ASSUMPTION (H-27): Prepare processors that need a reference dataset or a non-SQL
-# computation (phase 4, task 4), by DSS type id. To be completed with the catalogue.
-MANUAL_PROCESSORS = frozenset({"ZipCodeGeocoder", "GeoIPProcessor", "UserAgentClassifier"})
 # ASSUMPTION (H-28): Prepare processors that carry a Dataiku formula.
 FORMULA_PROCESSORS = frozenset({"CreateColumnWithGREL", "FilterOnFormula"})
 

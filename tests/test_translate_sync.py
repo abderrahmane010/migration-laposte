@@ -21,7 +21,7 @@ from dku2dbx.translate.engine import (
     translate_project,
     write_translation,
 )
-from dku2dbx.translate.visual import TRANSLATORS
+from dku2dbx.translate.registry import TRANSLATORS
 from tests.fixtures import make_fixture as mf
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 
@@ -199,8 +199,11 @@ def test_cli_translate(tmp_path: Path) -> None:
     export = str(DEFAULT_OUT_DIR / "DEMO_COMPLEXE.zip")
     result = CliRunner().invoke(app, ["translate", export, "--out", str(tmp_path)])
     assert result.exit_code == 0, result.output
-    covered = sum(r.type in TRANSLATORS for r in fixture("DEMO_COMPLEXE").recipes)
-    assert f"{covered} recette(s) traduite(s), 0 non prise(s) en charge" in result.output
+    expected = translate_project(fixture("DEMO_COMPLEXE"))
+    assert (
+        f"{len(expected.translated)} recette(s) traduite(s), "
+        f"{len(expected.unsupported)} non prise(s) en charge"
+    ) in result.output
     assert (tmp_path / "DEMO_COMPLEXE" / "sql" / "sync_events.sql").is_file()
 
 
@@ -218,7 +221,7 @@ def test_phase_3_end_criterion_every_relational_recipe_is_translated(key: str) -
     """ROADMAP phase 3: all relational recipes of the fixtures are translated."""
     project = fixture(key)
     result = translate_project(project)
-    assert result.unsupported == []
+    assert [u for u in result.unsupported if u.type in PHASE_3_TYPES] == []
     relational = {r.name for r in project.recipes if r.type in PHASE_3_TYPES}
     assert relational <= {t.recipe for t in result.translated}
     assert set(TRANSLATORS) >= PHASE_3_TYPES

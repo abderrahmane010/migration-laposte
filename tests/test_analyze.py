@@ -19,7 +19,7 @@ from dku2dbx.analyze.scoring import ScoringConfig, effort, load_scoring, score
 from dku2dbx.errors import ScoringConfigError
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import read_export
-from dku2dbx.translate.visual import TRANSLATORS
+from dku2dbx.translate.registry import TRANSLATORS
 from tests.fixtures import make_fixture as mf
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 

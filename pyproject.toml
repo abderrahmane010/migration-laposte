@@ -56,7 +56,7 @@ ignore = ["PLR2004"]  # magic numbers: acceptable dans les tests et fixtures
 extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR0913", "PLR0915"]
+"tests/**" = ["PLR0913", "PLR0915", "PLR0917"]
 
 # --- mypy -------------------------------------------------------------------
 [tool.mypy]

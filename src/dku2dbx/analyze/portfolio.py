@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 
 import networkx as nx
 
-from dku2dbx.analyze.classify import MANUAL_PROCESSORS, PREPARE_TYPE, processors
+from dku2dbx.analyze.classify import PREPARE_TYPE, processors
 from dku2dbx.analyze.model import (
     CrossProjectLink,
     PortfolioAnalysis,
@@ -16,6 +16,7 @@ from dku2dbx.analyze.model import (
     Wave,
 )
 from dku2dbx.model.ir import Project
+from dku2dbx.translate.prepare.processors import MANUAL_PROCESSORS
 
 
 def processor_catalogue(projects: list[Project]) -> list[ProcessorStat]:

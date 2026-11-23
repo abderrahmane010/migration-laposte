@@ -36,7 +36,7 @@ La classe d'une recette est sa **classe cible** prévue par la ROADMAP ; la colo
 
 ## Traduire (phase 3)
 
-`dku2dbx translate <export.zip>` traduit de façon déterministe les recettes visuelles (Sync, Sample/Filter, Distinct, Stack, Join, Group, Window, Split, Sort, Top N, Pivot) en Spark SQL :
+`dku2dbx translate <export.zip>` traduit de façon déterministe les recettes visuelles (Sync, Sample/Filter, Distinct, Stack, Join, Group, Window, Split, Sort, Top N, Pivot) et les recettes Prepare (une CTE par étape, langage de formules compris) en Spark SQL :
 
 - un fichier `out/<projet>/sql/<recette>.sql` par sortie (`<recette>__<sortie>.sql` quand il y en a plusieurs), qui commence par un en-tête de traçabilité (projet, recette, version, SHA-256 de la définition et du payload) et les **avertissements** à relire ;
 - `out/<projet>/translate_report.json` : recettes traduites, recettes **non prises en charge** avec l'élément Dataiku en cause, recettes sans traducteur.

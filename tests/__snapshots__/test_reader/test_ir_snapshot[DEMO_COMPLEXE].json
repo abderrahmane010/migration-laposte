@@ -3,7 +3,7 @@
     "generator": "dku2dbx",
     "generator_version": "0.0.1",
     "source_file": "DEMO_COMPLEXE.zip",
-    "source_sha256": "85faef399433d6dc03a6b8698c97b6cb034449c5fdc5febf1ae2ddf21fafe31e"
+    "source_sha256": "edfc74d080bfa1a441da79ad7a471ffe73a24d7d1b38f3a876cbd3e87ed944ee"
   },
   "project": {
     "datasets": [
@@ -1153,6 +1153,10 @@
           {
             "name": "amount_eur",
             "type": "double"
+          },
+          {
+            "name": "internal_flag",
+            "type": "boolean"
           }
         ],
         "connection": "pg_managed",
@@ -1179,7 +1183,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/events_sync.json",
-        "source_sha256": "f16d4215aece7ae955eadd8e7e9766fb1b947e2a23307d75745346815656af13",
+        "source_sha256": "cd546b27115d9b772a6de68c4c128a549aed09da4f60b04a043866d7b9fa373d",
         "status": "KNOWN",
         "table": "${projectKey}_events_sync",
         "table_resolved": "DEMO_COMPLEXE_events_sync",
@@ -1221,6 +1225,10 @@
           {
             "name": "amount_eur",
             "type": "double"
+          },
+          {
+            "name": "internal_flag",
+            "type": "boolean"
           }
         ],
         "connection": "hdfs_sources",
@@ -1247,7 +1255,7 @@
         ],
         "raw": null,
         "source_path": "project_config/datasets/parcels_events.json",
-        "source_sha256": "0409beb634d489c9c202e32b94d5178f9dce139ec22fe8ed5ab97b8540d420b1",
+        "source_sha256": "bcba1f58a0c091810f71e194d94e48b0b385e555e260c9e3ecaf374bdcf2e4df",
         "status": "KNOWN",
         "table": "${NODE_DC}_parcels_events",
         "table_resolved": "${NODE_DC}_parcels_events",
