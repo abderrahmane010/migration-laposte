@@ -154,6 +154,13 @@ Une recette qui serait `AUTO` passe en `MANUAL`, avec son motif, si son payload 
   - le catalogue des processeurs est généré.
 - `ruff check`, `ruff format --check` et `mypy --strict` : propres.
 
+### Vérification sur un projet réel (lu via l'API, compteurs anonymisés seulement)
+
+- 45 recettes : 22 `AUTO`, 16 `LLM_REVIEW`, 7 `MANUAL` ; effort 42 jours ; recalculés à la main depuis les types de recettes.
+- Niveau VERY_HIGH, dû à une seule condition : 5 scénarios Python (seuil 3). Les autres conditions atteintes sont de niveau HIGH (part de code 0,4, 24 datasets partitionnés, 2 modèles). H-29 confirmée : 2 scénarios `custom_python` et 3 step-based avec une step `custom_python`.
+- Catalogue : 3 steps pour 4 recettes Prepare (2 recettes sans step). Le payload a bien une liste `steps` (H-07 confirmée).
+- Types de steps de scénario rencontrés, utiles pour la phase 6 : `build_flowitem`, `custom_python`, `run_scenario`, `clear_items`, `sync_hive`.
+
 ### Points ouverts
 
 - **Webapps** : critère de la ROADMAP non mesuré, le lecteur ne les lit pas encore.

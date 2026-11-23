@@ -16,7 +16,7 @@ Statuts : `SUPPOSÉE` (non vérifiée), `CONFIRMÉE`, `INFIRMÉE` (avec la corre
 | H-04 | Une dimension de partition temporelle a la forme `{"name", "type": "time", "params": {"period": "DAY"}}` | supposée | `DEMO_COMPLEXE/parcels_events` | SUPPOSÉE |
 | H-05 | La dépendance de partition « même jour » s'écrit `deps: [{"func": "equals", "params": {}}]` dans `inputs.main.items[]` | supposée | `DEMO_COMPLEXE/sync_events` | SUPPOSÉE |
 | H-06 | `project_config/recipes/<nom>.json` contient `type`, `inputs.main.items[].{ref, deps}`, `outputs.main.items[].{ref, appendMode}`, `params.engineParams` et `neverRecomputeExistingPartitions` | CLAUDE.md | les deux | SUPPOSÉE |
-| H-07 | Une step Prepare a la forme `{"metaType": "PROCESSOR", "type", "params", "disabled"}` | CLAUDE.md | les deux | SUPPOSÉE |
+| H-07 | Une step Prepare a la forme `{"metaType": "PROCESSOR", "type", "params", "disabled"}` | CLAUDE.md | les deux | CONFIRMÉE (API) pour la liste `steps` du payload `.shaker` (4 recettes réelles ; les autres clés du payload ne concernent que l'affichage) |
 | H-08 | Une step groupée a `metaType: "GROUP"`, un `name` et des `steps` imbriquées | supposée (CLAUDE.md dit seulement « autre `metaType` ») | `DEMO_COMPLEXE/prepare_events` | SUPPOSÉE |
 | H-09 | Le payload d'une recette visuelle est `recipes/<nom>.<type>` : `.shaker`, `.join`, `.grouping`, `.window`, `.vstack`, `.split`, `.distinct`, `.pivot`, `.topn`, `.sort`, `.sync` | CLAUDE.md pour les principaux ; `.topn`, `.sort` et `.sync` supposés | les deux | SUPPOSÉE |
 | H-09a | Payload Join : `virtualInputs[].preFilter`, `joins[].{table1, table2, type, conditionsMode, on[].{column1, column2, type, caseInsensitive, normalizeText}}`, `selectedColumns`, `postFilter` | supposée | les deux | SUPPOSÉE |
@@ -64,4 +64,4 @@ Le projet a été lu via l'API par le pont `dku2dbx_bridge` (dépôt `agentic_pr
 |---|---|---|---|---|
 | H-27 | Processeurs Prepare qui exigent un référentiel ou un calcul hors SQL (classés `MANUAL`, ROADMAP phase 4 tâche 4) : `ZipCodeGeocoder`, `GeoIPProcessor`, `UserAgentClassifier`. Liste à compléter avec le catalogue | supposée (identifiants DSS non vérifiés) | `DEMO_COMPLEXE/prepare_depots`, `test_demo_complexe_figures` | SUPPOSÉE |
 | H-28 | Processeurs Prepare porteurs d'une formule Dataiku : `CreateColumnWithGREL`, `FilterOnFormula` (mesure `formula_prepares`) | supposée | `test_formula_rich_prepare_and_disabled_group` | SUPPOSÉE |
-| H-29 | Un scénario Python a le type `custom_python` ; un scénario step-based qui exécute du Python a une step de type `custom_python` | supposée | `test_python_scenarios_are_counted` | SUPPOSÉE |
+| H-29 | Un scénario Python a le type `custom_python` ; un scénario step-based qui exécute du Python a une step de type `custom_python` | supposée | `test_python_scenarios_are_counted` | CONFIRMÉE (API) : sur un projet réel, 2 scénarios `custom_python` et 3 step-based avec une step `custom_python`, sur 13 |
