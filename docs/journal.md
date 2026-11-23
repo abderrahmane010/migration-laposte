@@ -231,3 +231,10 @@ Phase 3 validée par le responsable le 2026-11-23, après traduction du projet r
 - **Fonctions de formule** : 20 fonctions traduites ; le recensement anonyme du projet réel dira lesquelles ajouter (dates, conversions…).
 - **Dates** (ajouté ensuite) : table de conversion des formats `SimpleDateFormat` → Spark (piège « Patterns de date », un bug de comptage des lettres trouvé par les tests) et processeur `DateParser` (fuseau déclaré → UTC, H-48), testés sur PySpark en hiver et en été.
 - **NULL dans `+`** (H-46) et `substring` (H-45) à vérifier sur Dataiku.
+
+### Vérification sur le projet réel (relevé anonymisé)
+
+- Format des étapes : `CreateColumnWithGREL {column, expression}` et `ColumnsSelector {appliesTo: COLUMNS, columns, keep}` conformes à H-47 ; les clés `alwaysShowComment` et `preview` ne servent qu'à l'affichage.
+- Formules : `if`, `!=`, `*`, nombres et texte, tous traduits.
+- `dku2dbx translate` : **18 recettes traduites** (14 visuelles, 4 Prepare sur 4), 4 refusées (les mêmes qu'en phase 3), 23 sans traducteur (code, ML).
+- Reste supposé : le format des 6 autres processeurs (aucune occurrence dans ce projet) ; à confirmer sur un projet riche en Prepare au pilote.
