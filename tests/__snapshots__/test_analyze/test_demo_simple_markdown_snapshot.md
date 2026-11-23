@@ -91,7 +91,7 @@ Source : `DEMO_SIMPLE.zip`
 
 | Recette | Type | Phase prévue | Traducteur disponible | Motif |
 |---|---|---|---|---|
-| group_by_customer | grouping | 3 | non | — |
+| group_by_customer | grouping | 3 | oui | — |
 | join_orders_customers | join | 3 | oui | — |
 | prepare_orders | shaker | 4 | non | — |
 | stack_orders | vstack | 3 | oui | — |

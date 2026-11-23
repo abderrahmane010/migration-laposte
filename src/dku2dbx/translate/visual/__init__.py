@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from dku2dbx.model.ir import Project, Recipe
 from dku2dbx.translate.model import Translation
+from dku2dbx.translate.visual.group import translate_grouping
 from dku2dbx.translate.visual.join import translate_join
 from dku2dbx.translate.visual.simple import translate_distinct, translate_sort, translate_vstack
 from dku2dbx.translate.visual.sync import translate_sampling, translate_sync
@@ -21,4 +22,5 @@ TRANSLATORS: dict[str, Translator] = {
     "vstack": translate_vstack,
     "sort": translate_sort,
     "join": translate_join,
+    "grouping": translate_grouping,
 }
