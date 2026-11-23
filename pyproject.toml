@@ -11,6 +11,7 @@ dependencies = [
     "networkx>=3.3",
     "jinja2>=3.1",
     "lark>=1.2",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
@@ -26,6 +27,7 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.8",
     "types-networkx>=3.6.1.20261119",
+    "types-pyyaml>=6.0",
 ]
 
 [build-system]
@@ -34,6 +36,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dku2dbx"]
+
+# The default scoring grid ships with the package (used when config/ is absent).
+[tool.hatch.build.targets.wheel.force-include]
+"config/scoring.yaml" = "dku2dbx/default_scoring.yaml"
 
 # --- ruff -------------------------------------------------------------------
 [tool.ruff]

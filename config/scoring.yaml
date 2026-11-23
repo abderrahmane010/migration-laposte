@@ -1,6 +1,51 @@
-# Score de complexité et estimation d'effort — rempli en phase 2.
-# Grille inspirée de Lakebridge : 4 niveaux (LOW, MEDIUM, HIGH, VERY_HIGH) ;
-# un niveau est atteint dès qu'une seule de ses conditions est remplie.
-# Les coefficients d'effort seront « à calibrer sur le pilote ».
-levels: {}
-effort_days: {}
+# Score de complexité et estimation d'effort (phase 2).
+#
+# Grille inspirée de Lakebridge : 4 niveaux (LOW, MEDIUM, HIGH, VERY_HIGH).
+# Un niveau est atteint dès qu'UNE seule de ses conditions l'est (mesure >= seuil).
+# Le niveau retenu est le plus élevé atteint ; sinon LOW.
+#
+# TOUTES LES VALEURS SONT À CALIBRER SUR LE PILOTE (ROADMAP, « Pilote et passage
+# à l'échelle »). Ce sont des valeurs de départ, pas des mesures.
+#
+# Mesures disponibles (calculées par dku2dbx.analyze) :
+#   recipes             nombre de recettes
+#   code_share          part des recettes de code (0 à 1)
+#   formula_prepares    recettes Prepare riches en formules (voir formula_rich_min_steps)
+#   partitioned         datasets partitionnés
+#   python_scenarios    scénarios Python
+#   plugins             plugins utilisés par au moins une recette
+#   saved_models        modèles enregistrés
+# Les webapps ne sont pas encore lues par le lecteur : elles ne sont pas mesurées.
+
+levels:
+  VERY_HIGH:
+    recipes: 150
+    code_share: 0.5
+    plugins: 3
+    python_scenarios: 3
+    saved_models: 3
+  HIGH:
+    recipes: 60
+    code_share: 0.3
+    formula_prepares: 10
+    partitioned: 10
+    python_scenarios: 1
+    plugins: 1
+    saved_models: 1
+  MEDIUM:
+    recipes: 20
+    code_share: 0.1
+    formula_prepares: 3
+    partitioned: 1
+
+# Une recette Prepare est « riche en formules » à partir de ce nombre de steps
+# de formule actives.
+formula_rich_min_steps: 3
+
+# Effort en jours, à calibrer sur le pilote : par recette selon sa classe cible,
+# plus un forfait par scénario.
+effort_days:
+  AUTO: 0.25
+  LLM_REVIEW: 1.0
+  MANUAL: 2.0
+  per_scenario: 0.5

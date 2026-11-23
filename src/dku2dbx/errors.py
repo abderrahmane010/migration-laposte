@@ -13,3 +13,7 @@ class ExportReadError(Dku2dbxError):
     Unknown object *types* are not errors: they are kept in the IR with
     ``status = UNKNOWN`` and reported as issues.
     """
+
+
+class ScoringConfigError(Dku2dbxError):
+    """``scoring.yaml`` is missing or invalid (unknown level, measure or class)."""
