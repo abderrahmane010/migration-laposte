@@ -36,6 +36,7 @@ from dku2dbx.model.ir import (
     RecipeCategory,
     RecipeInput,
     RecipeOutput,
+    SavedModel,
     Scenario,
     ScenarioStep,
     ScenarioTrigger,
@@ -47,6 +48,7 @@ from dku2dbx.reader.known_types import (
     CODE_RECIPE_TYPES,
     DATASET_TYPES,
     GROUP_META_TYPE,
+    PAYLOAD_OPTIONAL_RECIPE_TYPES,
     PROCESSOR_META_TYPE,
     SCENARIO_TYPES,
     plugin_id_of,
@@ -210,6 +212,7 @@ class _ProjectBuilder:
             self._recipe(rel, list(declared_plugins)) for rel in self._json_entries("recipes/")
         ]
         scenarios = [self._scenario(rel) for rel in self._json_entries("scenarios/")]
+        saved_models = [self._saved_model(rel) for rel in self._json_entries("saved_models/")]
 
         project = Project(
             key=key,
@@ -220,6 +223,7 @@ class _ProjectBuilder:
             datasets=sorted(datasets, key=lambda d: d.name),
             recipes=sorted(recipes, key=lambda r: r.name),
             scenarios=sorted(scenarios, key=lambda s: s.id),
+            saved_models=sorted(saved_models, key=lambda m: m.id),
             plugins=self._plugins(declared_plugins, recipes),
             exposed_objects=self._exposed(params),
             foreign_objects=self._foreign(manifest),
@@ -406,7 +410,10 @@ class _ProjectBuilder:
             if p != rel and PurePosixPath(p).name.startswith(name + ".")
         ]
         if not candidates:
-            if category in (RecipeCategory.VISUAL, RecipeCategory.CODE):
+            if (
+                category in (RecipeCategory.VISUAL, RecipeCategory.CODE)
+                and rtype not in PAYLOAD_OPTIONAL_RECIPE_TYPES
+            ):
                 self.issue(
                     IssueKind.MISSING_PAYLOAD,
                     ObjectKind.RECIPE,
@@ -427,6 +434,8 @@ class _ProjectBuilder:
             candidates = preferred
         path = candidates[0]
         text = self.ar.read_text(path)
+        if not text.strip() and rtype in PAYLOAD_OPTIONAL_RECIPE_TYPES:
+            return path, None, None
         if rtype in CODE_RECIPE_TYPES:
             return path, None, text
         try:
@@ -504,6 +513,23 @@ class _ProjectBuilder:
             raw=data if status is Status.UNKNOWN else None,
         )
 
+    def _saved_model(self, rel: str) -> SavedModel:
+        # ASSUMPTION (H-26): saved models in project_config/saved_models/<id>.json, with
+        # savedModelType, miniTask.{taskType, predictionType} and an optional zone key.
+        data, sha = self.ar.read_json(rel)
+        data = _as_dict(data)
+        mini_task = _as_dict(data.get("miniTask"))
+        return SavedModel(
+            id=_opt_str(data.get("id")) or _stem(rel),
+            name=_opt_str(data.get("name")),
+            saved_model_type=_opt_str(data.get("savedModelType")),
+            task_type=_opt_str(mini_task.get("taskType")),
+            prediction_type=_opt_str(mini_task.get("predictionType")),
+            zone=_opt_str(data.get("zone")),
+            source_path=rel,
+            source_sha256=sha,
+        )
+
     def _plugins(self, declared: dict[str, str | None], recipes: list[Recipe]) -> list[PluginUsage]:
         usages = {pid: PluginUsage(plugin_id=pid, version=v) for pid, v in declared.items()}
         for rcp in sorted(recipes, key=lambda r: r.name):
@@ -552,7 +578,9 @@ class _ProjectBuilder:
         known = {z.id for z in project.zones}
         objects: list[tuple[ObjectKind, str, str | None]] = [
             (ObjectKind.DATASET, d.name, d.zone) for d in project.datasets
-        ] + [(ObjectKind.RECIPE, r.name, r.zone) for r in project.recipes]
+        ]
+        objects += [(ObjectKind.RECIPE, r.name, r.zone) for r in project.recipes]
+        objects += [(ObjectKind.SAVED_MODEL, m.id, m.zone) for m in project.saved_models]
         for kind, name, zone in objects:
             if zone is not None and zone not in known:
                 self.issue(IssueKind.MISSING_REFERENCE, kind, name, f"zone '{zone}' is not defined")

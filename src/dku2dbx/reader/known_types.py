@@ -58,6 +58,11 @@ ML_RECIPE_TYPES = frozenset(
         "standalone_evaluation",
     }
 )
+# ASSUMPTION (H-25): these visual recipes may have no payload file (or an empty one):
+# their whole configuration is in the recipe definition. Seen on a real project read
+# through the API: the payload of every "sync" recipe is empty.
+PAYLOAD_OPTIONAL_RECIPE_TYPES = frozenset({"sync"})
+
 # ASSUMPTION (H-14): plugin recipe type is "CustomCode_<pluginId>-<recipeId>".
 PLUGIN_RECIPE_PREFIX = "CustomCode_"
 

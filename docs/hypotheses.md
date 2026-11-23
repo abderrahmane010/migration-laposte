@@ -48,3 +48,12 @@ Statuts : `SUPPOSÉE` (non vérifiée), `CONFIRMÉE`, `INFIRMÉE` (avec la corre
 | H-22 | Le moteur choisi est lu dans `params.engineParams.engineType` de la recette | supposée, **peu sûre** : le moteur réel pourrait n'être visible que via l'API (`get_selected_engine_details()`) | les deux | SUPPOSÉE |
 | H-23 | Le nom d'une recette ne contient pas de `.`. Son payload est l'unique fichier `recipes/<nom>.*` autre que `<nom>.json` ; en cas de pluralité, l'extension égale au type est préférée, sinon une anomalie est levée | supposée | `test_missing_reference_and_payload` | SUPPOSÉE |
 | H-24 | Priorité des variables, de la plus faible à la plus forte : variables d'instance fournies à l'appel, puis `standard`, puis `local`, puis `projectKey` (intégrée). Les variables d'instance (`${NODE_DC}`…) ne figurent pas dans l'export | supposée | `test_variable_priority`, `test_instance_variables_resolve_the_rest` | SUPPOSÉE |
+
+### Hypothèses ajoutées après la lecture d'un projet réel via l'API (correctif de la phase 1)
+
+Le projet a été lu via l'API par le pont `dku2dbx_bridge` (dépôt `agentic_projet`), faute de droit d'export. Seuls des compteurs anonymisés ont été partagés.
+
+| ID | Hypothèse | Source | Fixture / test | Statut |
+|---|---|---|---|---|
+| H-25 | Une recette `sync` peut n'avoir aucun payload, ou un payload vide : toute sa configuration est dans sa définition. Pour ce type, l'absence de payload ne lève pas `MISSING_PAYLOAD`, alors qu'elle le lève toujours pour les autres recettes visuelles et de code | constatée via l'API : les 3 recettes `sync` d'un projet réel ont un payload vide. À revérifier sur un vrai export ZIP | `test_sync_recipe_payload_is_optional`, `test_other_visual_recipe_still_needs_a_payload` | CONSTATÉE (API) |
+| H-26 | Les modèles enregistrés sont dans `project_config/saved_models/<id>.json` (`id`, `name`, `savedModelType`, `miniTask.{taskType, predictionType}`, `zone`). Une recette les référence par leur `id`, comme un dataset : en sortie pour l'entraînement, en entrée (rôle `model`) pour le scoring. Ils deviennent des nœuds `saved_model:<id>` du Flow | supposée. Constat sur un projet réel : sans cette modélisation, les entrées des recettes `prediction_scoring` étaient des références manquantes (2 cas) | `test_saved_model_is_read_and_linked_in_the_flow`, `test_undeclared_saved_model_is_still_a_missing_reference` | SUPPOSÉE |

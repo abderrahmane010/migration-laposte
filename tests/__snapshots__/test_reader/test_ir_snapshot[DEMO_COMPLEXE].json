@@ -3421,6 +3421,7 @@
         "zone": "z_kpi"
       }
     ],
+    "saved_models": [],
     "scenarios": [
       {
         "active": true,

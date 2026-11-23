@@ -51,6 +51,7 @@ class ObjectKind(StrEnum):
     DATASET = "DATASET"
     RECIPE = "RECIPE"
     SCENARIO = "SCENARIO"
+    SAVED_MODEL = "SAVED_MODEL"
     ZONE = "ZONE"
     FILE = "FILE"
 
@@ -200,6 +201,22 @@ class Scenario(_Model):
     raw: JsonDict | None = None
 
 
+class SavedModel(_Model):
+    """A saved model of the Flow (output of a training recipe, input of a scoring one).
+
+    Recipes reference it by ``id``. Only its definition is kept, never the model itself.
+    """
+
+    id: str
+    name: str | None = None
+    saved_model_type: str | None = None
+    task_type: str | None = None
+    prediction_type: str | None = None
+    zone: str | None = None
+    source_path: str
+    source_sha256: str
+
+
 class Zone(_Model):
     id: str
     name: str | None = None
@@ -230,13 +247,14 @@ class PluginUsage(_Model):
 class FlowNodeKind(StrEnum):
     DATASET = "DATASET"
     FOREIGN_DATASET = "FOREIGN_DATASET"
+    SAVED_MODEL = "SAVED_MODEL"
     MISSING = "MISSING"
     RECIPE = "RECIPE"
 
 
 class FlowNode(_Model):
     id: str
-    """``dataset:<name>`` or ``recipe:<name>``."""
+    """``dataset:<name>``, ``saved_model:<id>`` or ``recipe:<name>``."""
     kind: FlowNodeKind
     name: str
 
@@ -266,6 +284,7 @@ class Project(_Model):
     datasets: list[Dataset] = Field(default_factory=list)
     recipes: list[Recipe] = Field(default_factory=list)
     scenarios: list[Scenario] = Field(default_factory=list)
+    saved_models: list[SavedModel] = Field(default_factory=list)
     plugins: list[PluginUsage] = Field(default_factory=list)
     exposed_objects: list[ExposedObject] = Field(default_factory=list)
     foreign_objects: list[ForeignObject] = Field(default_factory=list)

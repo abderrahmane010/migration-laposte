@@ -15,6 +15,7 @@ from dku2dbx.errors import ExportReadError
 from dku2dbx.model import (
     FlowNodeKind,
     IssueKind,
+    ObjectKind,
     Project,
     RecipeCategory,
     Status,
@@ -369,6 +370,108 @@ def test_missing_reference_and_payload(tmp_path: Path) -> None:
     reported = {(i.kind, i.object_name) for i in project.issues}
     assert (IssueKind.MISSING_REFERENCE, "orphan") in reported
     assert (IssueKind.MISSING_PAYLOAD, "window_orders") in reported
+
+
+@pytest.mark.parametrize("payload", [None, b"", b"  \n"])
+def test_sync_recipe_payload_is_optional(tmp_path: Path, payload: bytes | None) -> None:
+    # H-25: through the API, every "sync" recipe of a real project had an empty payload.
+    p = mf.build_demo_simple()
+    p.add_recipe(
+        mf.recipe(p.key, "copy_orders", "sync", [mf.ref("orders_raw")], [mf.out_ref("copy")]),
+        {},
+    )
+    p.add_dataset(mf.dataset(p.key, "copy", cols=mf.columns("x:string")))
+    files = p.files()
+    del files["project_config/recipes/copy_orders.sync"]
+    if payload is not None:
+        files["project_config/recipes/copy_orders.sync"] = payload
+    project = read_export(write_zip(tmp_path, files))
+    assert project.recipe("copy_orders").payload is None
+    assert [i for i in project.issues if i.object_name == "copy_orders"] == []
+
+
+def test_other_visual_recipe_still_needs_a_payload(tmp_path: Path) -> None:
+    files = mf.build_demo_simple().files()
+    files["project_config/recipes/window_orders.window"] = b""
+    project = read_export(write_zip(tmp_path, files))
+    reported = {(i.kind, i.object_name) for i in project.issues}
+    assert (IssueKind.INVALID_PAYLOAD, "window_orders") in reported
+
+
+def _demo_with_saved_model(*, declare_model: bool) -> dict[str, bytes]:
+    # H-26: a training recipe outputs a saved model, a scoring recipe reads it by id.
+    p = mf.build_demo_simple()
+    p.add_dataset(mf.dataset(p.key, "orders_scored", cols=mf.columns("x:string")))
+    p.add_recipe(
+        mf.recipe(
+            p.key,
+            "train_model",
+            "prediction_training",
+            [mf.ref("orders_raw")],
+            [mf.out_ref("Ab12Cd34")],
+        ),
+        {},
+    )
+    rcp = mf.recipe(
+        p.key,
+        "score_orders",
+        "prediction_scoring",
+        [mf.ref("orders_raw")],
+        [mf.out_ref("orders_scored")],
+    )
+    rcp["inputs"]["model"] = {"items": [mf.ref("Ab12Cd34")]}
+    p.add_recipe(rcp, {})
+    files = p.files()
+    for name in ("train_model", "score_orders"):
+        files.pop(f"project_config/recipes/{name}.json.payload")
+    if declare_model:
+        files["project_config/saved_models/Ab12Cd34.json"] = mf._json(
+            {
+                "id": "Ab12Cd34",
+                "projectKey": p.key,
+                "name": "Delay model",
+                "savedModelType": "DSS_MANAGED",
+                "miniTask": {"taskType": "PREDICTION", "predictionType": "REGRESSION"},
+                "zone": "ghost_zone",
+            }
+        )
+    return files
+
+
+def test_saved_model_is_read_and_linked_in_the_flow(tmp_path: Path) -> None:
+    project = read_export(write_zip(tmp_path, _demo_with_saved_model(declare_model=True)))
+    [sm] = project.saved_models
+    assert (sm.id, sm.name, sm.saved_model_type) == ("Ab12Cd34", "Delay model", "DSS_MANAGED")
+    assert (sm.task_type, sm.prediction_type) == ("PREDICTION", "REGRESSION")
+    assert sm.source_path == "project_config/saved_models/Ab12Cd34.json"
+
+    nodes = {n.id: n.kind for n in project.flow.nodes}
+    assert nodes["saved_model:Ab12Cd34"] is FlowNodeKind.SAVED_MODEL
+    assert "dataset:Ab12Cd34" not in nodes
+    edges = {(e.source, e.target) for e in project.flow.edges}
+    assert ("recipe:train_model", "saved_model:Ab12Cd34") in edges
+    assert ("saved_model:Ab12Cd34", "recipe:score_orders") in edges
+    order = project.flow.topological_order
+    assert order.index("recipe:train_model") < order.index("recipe:score_orders")
+    assert [score.role for score in project.recipe("score_orders").inputs] == ["main", "model"]
+
+    reported = {(i.kind, i.object_kind, i.object_name) for i in project.issues}
+    assert (IssueKind.MISSING_REFERENCE, ObjectKind.SAVED_MODEL, "Ab12Cd34") in reported
+    assert not any(
+        i.kind is IssueKind.MISSING_REFERENCE and i.object_kind is ObjectKind.RECIPE
+        for i in project.issues
+    )
+    assert project.unparsed_entries == []
+
+
+def test_undeclared_saved_model_is_still_a_missing_reference(tmp_path: Path) -> None:
+    project = read_export(write_zip(tmp_path, _demo_with_saved_model(declare_model=False)))
+    assert project.saved_models == []
+    nodes = {n.id: n.kind for n in project.flow.nodes}
+    assert nodes["dataset:Ab12Cd34"] is FlowNodeKind.MISSING
+    # The missing node is reported once, on the first recipe (in name order) using it.
+    reported = {(i.kind, i.object_name) for i in project.issues}
+    assert (IssueKind.MISSING_REFERENCE, "score_orders") in reported
 
 
 def test_cycle_is_reported(tmp_path: Path) -> None:

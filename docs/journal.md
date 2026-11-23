@@ -95,3 +95,14 @@ Phase 0 validée par le responsable le 2026-11-22 (CI verte sur GitHub).
 - **Aucun vrai export dans `exports/`** : toutes les hypothèses de format restent `SUPPOSÉE`. Le premier vrai export permettra de les confirmer ou de les corriger : `uv run dku2dbx analyze exports/<x>.zip --dump-ir`, puis examen de `unparsed_entries` et de `issues`.
 - **H-22 (moteur d'exécution)** est l'hypothèse la plus fragile : le moteur réellement utilisé n'est peut-être visible que via l'API.
 - **Variables d'instance** (`${NODE_DC}`) : le lecteur les accepte en paramètre (`instance_variables`), mais la CLI n'a pas encore d'option pour les passer. À décider en phase 2 ou en phase 7.
+
+### Correctif après lecture d'un projet réel (2026-11-23)
+
+Sans droit d'export, un projet réel a été lu via l'API par le pont `dku2dbx_bridge` (dépôt `agentic_projet`). Il a recomposé un export virtuel, puis le lecteur de cette phase l'a lu tel quel. Seuls des compteurs anonymisés ont été partagés. Résultat : 55 datasets, 45 recettes de 22 types, 13 scénarios et 8 zones, sans aucun type inconnu. Deux écarts venaient du lecteur et sont corrigés :
+
+- **Recettes `sync` sans payload** (H-25) : elles levaient `MISSING_PAYLOAD` à tort (3 cas). L'absence de payload, ou un payload vide, est maintenant admise pour ce seul type.
+- **Modèles enregistrés** (H-26) : les entrées des recettes `prediction_scoring` étaient des références manquantes (2 cas). L'IR a un nouvel objet `SavedModel` (`Project.saved_models`), lu dans `saved_models/<id>.json`, et le Flow un nœud `SAVED_MODEL`. Un modèle référencé mais absent de l'export reste une `MISSING_REFERENCE`.
+
+Les snapshots d'IR ne changent que par le champ vide `saved_models`. Résultats : `uv run pytest`, **72 tests passés** ; `ruff` et `mypy --strict` propres.
+
+Il reste à faire : les dossiers gérés (managed folders) ne sont pas encore modélisés. Ils produiraient le même type de référence manquante, mais aucun n'a été rencontré.
