@@ -95,7 +95,7 @@ Source : `DEMO_SIMPLE.zip`
 | join_orders_customers | join | 3 | oui | — |
 | prepare_orders | shaker | 4 | non | — |
 | stack_orders | vstack | 3 | oui | — |
-| window_orders | window | 3 | non | — |
+| window_orders | window | 3 | oui | — |
 
 ### LLM_REVIEW : résidu traité par le LLM, relu
 

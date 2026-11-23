@@ -3,7 +3,7 @@
     "generator": "dku2dbx",
     "generator_version": "0.0.1",
     "source_file": "DEMO_COMPLEXE.zip",
-    "source_sha256": "bd48396686139889834dcce6eda277c5207c4f99c4bbf97115c829c955049a35"
+    "source_sha256": "85faef399433d6dc03a6b8698c97b6cb034449c5fdc5febf1ae2ddf21fafe31e"
   },
   "project": {
     "datasets": [
@@ -491,15 +491,11 @@
             "type": "int"
           },
           {
-            "name": "day",
-            "type": "date"
-          },
-          {
             "name": "delay_minutes_avg",
             "type": "double"
           },
           {
-            "name": "delay_minutes_avg_lag",
+            "name": "delay_minutes_avg_lag1",
             "type": "double"
           },
           {
@@ -523,7 +519,7 @@
         "partitioning": [],
         "raw": null,
         "source_path": "project_config/datasets/depot_trend.json",
-        "source_sha256": "515f9fb10aca41fd7b834a34ae99e2afeb6771ec2ad15e46dd10a66a1d08d98d",
+        "source_sha256": "23512d1e71587a926363003f1a9c14e1df1348b3b017f407b274a050f9aa4ecc",
         "status": "KNOWN",
         "table": "${projectKey}_depot_trend",
         "table_resolved": "DEMO_COMPLEXE_depot_trend",
@@ -537,10 +533,6 @@
           {
             "name": "depot_id",
             "type": "int"
-          },
-          {
-            "name": "day",
-            "type": "date"
           },
           {
             "name": "delay_minutes_avg",
@@ -563,7 +555,7 @@
         "partitioning": [],
         "raw": null,
         "source_path": "project_config/datasets/depot_trend_sorted.json",
-        "source_sha256": "96848a2f82748ca3e625fcebe1e2579c88ec6e975cbb81f14a7ecaed722ce2a1",
+        "source_sha256": "e23e12818f8d18e9cb5c5a04bfaf8ddfd56d12a32007221170eccd1822a9031e",
         "status": "KNOWN",
         "table": "${projectKey}_depot_trend_sorted",
         "table_resolved": "DEMO_COMPLEXE_depot_trend_sorted",
@@ -3266,7 +3258,7 @@
               "desc": false
             },
             {
-              "column": "day",
+              "column": "delay_minutes_avg",
               "desc": true
             }
           ],
@@ -3591,7 +3583,6 @@
           "rank": false,
           "retrievedColumns": [
             "depot_id",
-            "day",
             "delay_minutes_avg"
           ],
           "retrievedColumnsSelectionMode": "EXPLICIT",
@@ -3649,7 +3640,7 @@
             "distinct": false,
             "enabled": false
           },
-          "rank": false,
+          "rank": true,
           "rowNumber": false,
           "values": [
             {
@@ -3681,19 +3672,17 @@
             {
               "enableLimits": false,
               "enableOrdering": true,
-              "enablePartitioning": true,
+              "enablePartitioning": false,
               "followingRows": 0,
               "limitFollowing": false,
               "limitPreceding": false,
               "orders": [
                 {
-                  "column": "day",
-                  "desc": false
+                  "column": "delay_minutes_avg",
+                  "desc": true
                 }
               ],
-              "partitioningColumns": [
-                "depot_id"
-              ],
+              "partitioningColumns": [],
               "precedingRows": 0,
               "windowLimitMode": "ROWS",
               "windowLowerBound": 0,

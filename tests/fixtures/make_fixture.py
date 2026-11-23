@@ -761,11 +761,11 @@ def build_demo_complexe() -> Project:
     )
     ds(
         "depot_trend",
+        # "day" is a partition dimension, not a column: the window orders by the delay.
         columns(
             "depot_id:int",
-            "day:date",
             "delay_minutes_avg:double",
-            "delay_minutes_avg_lag:double",
+            "delay_minutes_avg_lag1:double",
             "rank:bigint",
         ),
         zone="z_kpi",
@@ -773,7 +773,7 @@ def build_demo_complexe() -> Project:
     ds("top_late_depots", columns("depot_id:int", "delay_minutes_avg:double"), zone="z_kpi")
     ds(
         "depot_trend_sorted",
-        columns("depot_id:int", "day:date", "delay_minutes_avg:double"),
+        columns("depot_id:int", "delay_minutes_avg:double"),
         zone="z_kpi",
     )
     ds(
@@ -961,9 +961,10 @@ def build_demo_complexe() -> Project:
         [ref("daily_depot_kpis")],
         [out_ref("depot_trend")],
         window_payload(
-            ["depot_id"],
-            [("day", False)],
+            [],
+            [("delay_minutes_avg", True)],
             [window_value("delay_minutes_avg", lag="1")],
+            rank=True,
         ),
         zone="z_kpi",
     )
@@ -980,7 +981,7 @@ def build_demo_complexe() -> Project:
             "orders": [{"column": "delay_minutes_avg", "desc": True}],
             "keys": [],
             "retrievedColumnsSelectionMode": "EXPLICIT",
-            "retrievedColumns": ["depot_id", "day", "delay_minutes_avg"],
+            "retrievedColumns": ["depot_id", "delay_minutes_avg"],
             "rank": False,
             "rowNumber": False,
             "denseRank": False,
@@ -998,7 +999,10 @@ def build_demo_complexe() -> Project:
         [ref("depot_trend")],
         [out_ref("depot_trend_sorted")],
         {
-            "orders": [{"column": "depot_id", "desc": False}, {"column": "day", "desc": True}],
+            "orders": [
+                {"column": "depot_id", "desc": False},
+                {"column": "delay_minutes_avg", "desc": True},
+            ],
             "rank": False,
             "rowNumber": False,
             "denseRank": False,

@@ -10,6 +10,7 @@ from dku2dbx.translate.visual.group import translate_grouping
 from dku2dbx.translate.visual.join import translate_join
 from dku2dbx.translate.visual.simple import translate_distinct, translate_sort, translate_vstack
 from dku2dbx.translate.visual.sync import translate_sampling, translate_sync
+from dku2dbx.translate.visual.window import translate_window
 
 Translator = Callable[[Project, Recipe], Translation]
 
@@ -23,4 +24,5 @@ TRANSLATORS: dict[str, Translator] = {
     "sort": translate_sort,
     "join": translate_join,
     "grouping": translate_grouping,
+    "window": translate_window,
 }
