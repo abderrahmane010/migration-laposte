@@ -18,6 +18,9 @@ from dku2dbx.analyze.model import ProjectAnalysis
 from dku2dbx.analyze.portfolio import analyze_portfolio
 from dku2dbx.analyze.report import write_outputs
 from dku2dbx.analyze.scoring import load_scoring
+from dku2dbx.connect.report import write_report as write_connect_report
+from dku2dbx.connect.resolve import ConnectionsError, branch_sources, load_connections
+from dku2dbx.connect.uc_check import check_tables, workspace_client
 from dku2dbx.errors import ExportReadError, ScoringConfigError
 from dku2dbx.generate.bundle import GenerateError, generate_job_bundle, write_bundle
 from dku2dbx.model.ir import Project
@@ -208,15 +211,22 @@ def generate(
         None, "--out", help="Dossier du bundle (défaut : out/<projet>/bundle)."
     ),
     no_fusion: bool = typer.Option(False, "--no-fusion", help="Une étape par recette."),
+    connections: Path | None = typer.Option(
+        None, "--connections", help="Mapping des sources (phase 7, défaut : config/…)."
+    ),
 ) -> None:
     """Migrer : générer le bundle Databricks, job de notebooks SQL ou pipeline (phase 6)."""
     if target not in ("job", "pipeline"):
         typer.echo(f"Erreur : cible inconnue {target!r} (job ou pipeline)", err=True)
         raise typer.Exit(code=1)
     try:
-        project = ZipExportReader(export).read()
-        bundle = generate_job_bundle(project, fusion=not no_fusion, target=target)
-    except (ExportReadError, SimplifyError, GenerateError) as exc:
+        config, source = load_connections(connections)
+        project = ZipExportReader(export, config.instance_variables).read()
+        branching = branch_sources(project, config, source)
+        bundle = generate_job_bundle(
+            project, fusion=not no_fusion, target=target, branching=branching
+        )
+    except (ExportReadError, SimplifyError, GenerateError, ConnectionsError) as exc:
         typer.echo(f"Erreur : {exc}", err=True)
         raise typer.Exit(code=1) from exc
     target_dir = out or Path("out") / project.key / "bundle"
@@ -231,9 +241,41 @@ def generate(
 
 
 @app.command()
-def connect() -> None:
+def connect(
+    export: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    ),
+    connections: Path | None = typer.Option(
+        None,
+        "--connections",
+        help="Mapping (défaut : config/connections.local.yaml, sinon config/connections.yaml).",
+    ),
+    out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
+    check_uc: bool = typer.Option(
+        False, "--check-uc", help="Vérifier les tables dans Unity Catalog (profil Databricks)."
+    ),
+    profile: str | None = typer.Option(None, "--profile", help="Profil Databricks CLI."),
+) -> None:
     """Brancher : associer les sources Dataiku aux tables Unity Catalog (phase 7)."""
-    _not_implemented("connect", 7)
+    try:
+        config, source = load_connections(connections)
+        project = ZipExportReader(export, config.instance_variables).read()
+    except (ExportReadError, ConnectionsError) as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    branching = branch_sources(project, config, source)
+    write_connect_report(project, branching, out)
+    typer.echo(
+        f"Projet {project.key} : {len(branching.resolved)} source(s) branchée(s), "
+        f"{len(branching.unresolved)} à brancher (mapping {source})."
+    )
+    typer.echo(f"Rapport dans {out / project.key / 'a_brancher.md'}")
+    if check_uc:
+        problems = check_tables(project, branching, workspace_client(profile))
+        for name, problem in problems.items():
+            typer.echo(f"  - {name} : {problem}")
+        if problems:
+            raise typer.Exit(code=1)
 
 
 @app.command()

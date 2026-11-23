@@ -314,3 +314,29 @@ Phase 5 validée par le responsable le 2026-11-23. Décision : une table **const
 - Projet réel (relevé anonyme) : 21 partitions `time`/`DAY` et 20 dépendances `equals` traduites ; **`all_available` ajoutée** (5 dépendances : l'entrée est lue entière). Restent refusées : **3 partitions discrètes `value`** (quelle valeur un job doit-il construire ? à décider au pilote).
 
 Phase 6 validée par le responsable le 2026-11-24. Projet réel : 44 étapes, dont 28 à migrer à la main (23 sans traducteur, 4 refus connus, 1 partition par valeur), 16 générées en SQL Databricks.
+
+## Phase 7 — Branchement des sources (2026-11-24)
+
+### Décisions prises avec le responsable
+
+- **Mapping hors Git** : `config/connections.yaml` (versionné) ne contient que des exemples fictifs ; les vraies valeurs vont dans `config/connections.local.yaml` (ignoré par Git), lu en priorité. Une valeur fictive (`[…]`) n'est jamais utilisée.
+- **Source non branchée** : une tâche d'ingestion de substitution, qui échoue explicitement, précède les étapes qui la lisent ; le reste du bundle est généré.
+- **Vérification Unity Catalog** : prévue (`--check-uc`, SDK Databricks en dépendance optionnelle, testée avec un faux client), non activée faute de workspace.
+
+### Réalisé
+
+- `connect/resolve.py` : chargement et validation du mapping (connexions, `shared_projects`, `instance_variables`), résolution des sources (H-55) ; une variable Dataiku ne bloque que si le modèle de nom l'utilise. Les variables d'instance (point ouvert depuis la phase 1) se renseignent maintenant dans le mapping local.
+- `connect/report.py` : `a_brancher.md` (raisons, tables branchées, sources partitionnées, graphe Mermaid avec les sources à brancher en pointillés) et `connect.json`.
+- `connect/uc_check.py` : existence des tables et colonnes attendues (faux client en test).
+- `generate` : sources branchées qualifiées en `catalog.schema.table` (cibles A et B) ; tâches `ingest_NN` qui échouent pour les sources non branchées, dont dépendent les étapes et le pipeline qui les lisent ; section « Sources » dans `GENERATION.md`.
+- CLI : `dku2dbx connect <export.zip> [--connections] [--out] [--check-uc --profile]` ; `generate --connections`.
+
+### Résultats
+
+- `uv run pytest` : **405 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critères de fin de phase : les tests couvrent la résolution, les variables non résolues (puis résolues par variable d'instance) et une connexion inconnue ; le rapport « à brancher » est produit pour les fixtures.
+
+### Points ouverts
+
+- Vérification Unity Catalog et ingestion réelle des sources : à faire avec un workspace (le chantier d'ingestion HDFS → Databricks reste hors de `dku2dbx`).
+- Les sources partitionnées devront avoir leur colonne de date (H-53).

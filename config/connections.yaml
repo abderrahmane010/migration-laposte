@@ -1,6 +1,26 @@
-# Connexion Dataiku -> catalog.schema Unity Catalog — rempli en phase 7.
-# Exemple de forme attendue (valeurs fictives) :
-#   pg_sources:
-#     catalog: bac_a_sable
-#     schema: sources
-connections: {}
+# Branchement des sources (phase 7) : connexion Dataiku -> table Unity Catalog.
+#
+# CE FICHIER NE CONTIENT QUE DES EXEMPLES FICTIFS. Les vraies correspondances vont dans
+# config/connections.local.yaml (ignoré par Git), lu en priorité par
+# `dku2dbx connect` et `dku2dbx generate` (décision du 2026-11-24).
+#
+# Pour chaque connexion Dataiku :
+#   catalog   catalogue Unity Catalog (obligatoire)
+#   schema    schéma Unity Catalog ; absent = le schéma Dataiku du dataset (params.schema)
+#   table     modèle du nom de table, avec {table} (table Dataiku, ou nom du dataset si
+#             le dataset n'a pas de table, ex. HDFS), {dataset} et {schema} ; défaut "{table}"
+#   lowercase true pour mettre le nom final en minuscules
+#
+# shared_projects    : où trouver les datasets partagés par d'autres projets (PROJET.dataset).
+# instance_variables : variables d'instance Dataiku (${NODE_DC}…), absentes des exports.
+
+connections:
+  pg_sources_exemple:
+    catalog: "[CATALOGUE_SOURCES]"
+    schema: "[SCHEMA_SOURCES]"
+    table: "{table}"
+    lowercase: false
+
+shared_projects: {}
+
+instance_variables: {}

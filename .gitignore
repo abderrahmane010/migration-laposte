@@ -44,3 +44,6 @@ derby.log
 
 # Claude Code : réglages locaux
 .claude/settings.local.json
+
+# Branchement réel des sources (phase 7) : jamais dans Git
+config/*.local.yaml

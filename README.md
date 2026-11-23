@@ -15,6 +15,7 @@ uv run dku2dbx analyze exports/ --out out/      # analyse : inventaire, classeme
 uv run dku2dbx analyze export.zip --dump-ir     # un seul projet, avec en plus out/<projet>/ir.json
 uv run dku2dbx simplify export.zip              # étapes après fusion -> out/<projet>/simplify.md
 uv run dku2dbx translate export.zip             # recettes visuelles -> out/<projet>/sql/*.sql
+uv run dku2dbx connect export.zip               # sources -> Unity Catalog, out/<projet>/a_brancher.md
 uv run dku2dbx generate export.zip              # bundle Databricks -> out/<projet>/bundle/
 uv run python tests/fixtures/make_fixture.py    # régénère les exports synthétiques
 uv run pytest                                   # tests
@@ -39,6 +40,12 @@ La classe d'une recette est sa **classe cible** prévue par la ROADMAP ; la colo
 ## Simplifier (phase 5)
 
 `dku2dbx simplify <export.zip> [--no-fusion]` fusionne les chaînes de recettes en étapes : une table intermédiaire lue par une seule recette devient une CTE de l'étape qui la consomme. Une table reste matérialisée si c'est une sortie finale ou exposée, si plusieurs recettes la lisent, si elle est partitionnée, en append, porte des checks ou sert à un scénario, ou si elle touche une recette `LLM_REVIEW`, `MANUAL` ou non traduisible. `simplify.md` donne les étapes, les tables supprimées et la raison de chaque table conservée ; `--no-fusion` garde une étape par recette.
+
+## Brancher les sources (phase 7)
+
+Les vraies correspondances « connexion Dataiku → catalogue.schéma Unity Catalog » vont dans `config/connections.local.yaml`, **ignoré par Git** (modèle commenté et fictif : `config/connections.yaml`). On y met aussi les `shared_projects` (datasets partagés par d'autres projets) et les `instance_variables` (`${NODE_DC}`…).
+
+`dku2dbx connect <export.zip> [--connections fichier]` écrit `a_brancher.md` (sources branchées, sources à brancher avec leur raison, graphe où les sources à brancher sont en pointillés). `dku2dbx generate` lit le même mapping : les sources branchées sont lues en `catalog.schema.table`, chaque source non branchée reçoit une tâche d'ingestion qui échoue tant qu'elle n'est pas branchée. `--check-uc --profile X` vérifiera les tables dans Unity Catalog (SDK Databricks, optionnel).
 
 ## Générer le bundle (phase 6)
 

@@ -23,6 +23,7 @@ import sqlglot
 from sqlglot import exp
 
 from dku2dbx import __version__
+from dku2dbx.connect.resolve import Branching
 from dku2dbx.errors import Dku2dbxError, UnsupportedConstruct
 from dku2dbx.generate.partitions import (
     DayPartition,
@@ -43,6 +44,7 @@ from dku2dbx.translate.visual.types import spark_type
 NOTEBOOK_HEADER = "-- Databricks notebook source"
 CELL = "\n\n-- COMMAND ----------\n\n"
 SCHEMA_TASK = "prepare_schema"
+INGEST_PREFIX = "ingest_"
 
 
 class GenerateError(Dku2dbxError):
@@ -67,6 +69,7 @@ class Bundle:
     scenarios: list[ScenarioJob] = field(default_factory=list)
     target: str = "job"
     pipeline_steps: list[str] = field(default_factory=list)
+    branching: Branching | None = None
     """Steps materialized as views of the pipeline (target B)."""
 
 
@@ -86,8 +89,15 @@ def _parse(sql: str) -> exp.Query:
 
 
 class _StepBuilder:
-    def __init__(self, project: Project, result: ProjectTranslation, flow: SimplifiedFlow) -> None:
+    def __init__(
+        self,
+        project: Project,
+        result: ProjectTranslation,
+        flow: SimplifiedFlow,
+        branching: Branching | None = None,
+    ) -> None:
         self.project = project
+        self.branched = dict(branching.resolved) if branching else {}
         self.translated = {t.recipe: t for t in result.translated}
         self.unsupported = {u.recipe: u for u in result.unsupported}
         self.outputs: dict[str, tuple[str, TranslatedOutput]] = {
@@ -140,9 +150,10 @@ class _StepBuilder:
     def _recipe_query(self, dataset: str) -> exp.Query:
         """The translated query of a recipe output, reading only the partition it builds."""
         recipe, output = self.outputs[dataset]
-        return filter_partitioned_inputs(
+        query = filter_partitioned_inputs(
             _parse(output.sql), self.project.recipe(recipe), self.project
         )
+        return _qualify_sources(query, self.branched)
 
     def _statement(self, dataset: str, query: exp.Query, append: bool) -> list[str]:
         recipe = self.outputs[dataset][0]
@@ -286,13 +297,48 @@ class _StepBuilder:
         return GeneratedStep(step, CELL.join(stub) + "\n", False, reasons)
 
 
-def _depends_on(flow: SimplifiedFlow, project: Project) -> dict[str, list[str]]:
+def _qualify_sources(query: exp.Query, branched: dict[str, str]) -> exp.Query:
+    """Branched sources (phase 7) are read as catalog.schema.table."""
+    if not branched:
+        return query
+
+    def qualify(node: exp.Expr) -> exp.Expr:
+        if isinstance(node, exp.Table) and not node.args.get("db") and node.name in branched:
+            catalog, schema, name = branched[node.name].split(".", 2)
+            qualified = exp.table_(name, db=schema, catalog=catalog, quoted=True)
+            qualified.set(
+                "alias",
+                node.args.get("alias")
+                or exp.TableAlias(this=exp.to_identifier(node.name, quoted=True)),
+            )
+            return qualified
+        return node
+
+    result = query.transform(qualify)
+    if not isinstance(result, exp.Query):
+        raise TypeError("unexpected transform result")
+    return result
+
+
+def _ingest_tasks(project: Project, branching: Branching | None) -> dict[str, str]:
+    """Unbranched source -> its failing ingestion task (decision of 2026-11-24)."""
+    if branching is None:
+        return {}
+    return {name: f"ingest_{i:02d}" for i, name in enumerate(sorted(branching.unresolved), 1)}
+
+
+def _depends_on(
+    flow: SimplifiedFlow, project: Project, ingest: dict[str, str] | None = None
+) -> dict[str, list[str]]:
+    """Step -> tasks it waits for: schema, upstream steps, ingestion of unbranched sources."""
     writer = {out: s.id for s in flow.steps for out in s.outputs}
+    ingest = ingest or {}
     deps: dict[str, list[str]] = {}
     for step in flow.steps:
         reads = {i.ref for r in step.recipes for i in project.recipe(r).inputs}
         upstream = sorted({writer[t] for t in reads if t in writer and writer[t] != step.id})
-        deps[step.id] = [SCHEMA_TASK, *upstream]
+        sources = sorted({ingest[t] for t in reads if t in ingest})
+        deps[step.id] = [SCHEMA_TASK, *sources, *upstream]
     return deps
 
 
@@ -393,10 +439,21 @@ def _job_tasks(
     result_tasks: list[dict[str, Any]] = [
         {"key": SCHEMA_TASK, "depends_on": [], "notebook": "../src/00_prepare_schema.sql"}
     ]
+    ingest = sorted({d for sid in step_ids for d in deps[sid] if d.startswith(INGEST_PREFIX)})
+    result_tasks += [
+        {"key": key, "depends_on": [SCHEMA_TASK], "notebook": f"../src/{key}.sql"} for key in ingest
+    ]
     upstream_tasks = [SCHEMA_TASK]
     if kept & pipeline_ids:
+        pipeline_ingest = sorted(
+            {d for sid in kept & pipeline_ids for d in deps[sid] if d.startswith(INGEST_PREFIX)}
+        )
         result_tasks.append(
-            {"key": "pipeline", "depends_on": [SCHEMA_TASK], "pipeline": pipeline_key}
+            {
+                "key": "pipeline",
+                "depends_on": [SCHEMA_TASK, *pipeline_ingest],
+                "pipeline": pipeline_key,
+            }
         )
         upstream_tasks.append("pipeline")
         if has_checks:
@@ -412,7 +469,11 @@ def _job_tasks(
             continue
         # A SQL task runs after the pipeline (it may read its views) and after the
         # SQL tasks it reads; pipeline steps are covered by the "pipeline" task.
-        notebook_deps = [d for d in deps[sid] if d in kept and d not in pipeline_ids]
+        notebook_deps = [
+            d
+            for d in deps[sid]
+            if d.startswith(INGEST_PREFIX) or (d in kept and d not in pipeline_ids)
+        ]
         result_tasks.append(
             {
                 "key": sid,
@@ -433,7 +494,13 @@ def _checks_notebook(header: str, checks: list[str]) -> str:
     return CELL.join(cells) + "\n"
 
 
-def generate_job_bundle(project: Project, *, fusion: bool = True, target: str = "job") -> Bundle:
+def generate_job_bundle(
+    project: Project,
+    *,
+    fusion: bool = True,
+    target: str = "job",
+    branching: Branching | None = None,
+) -> Bundle:
     """Every file of the bundle, in memory (written by ``write_bundle``).
 
     ``target="job"`` (A): a job of SQL notebooks. ``target="pipeline"`` (B): a Lakeflow
@@ -446,7 +513,7 @@ def generate_job_bundle(project: Project, *, fusion: bool = True, target: str = 
     as_parameters = project.model_copy(update={"variables": {**project.variables, **params}})
     result = translate_project(as_parameters)
     flow = simplify_flow(project, fusion=fusion)
-    builder = _StepBuilder(project, result, flow)
+    builder = _StepBuilder(project, result, flow, branching)
     steps = [builder.build(step) for step in flow.steps]
     header = f"Generated by dku2dbx {__version__} for the Dataiku project {project.key}"
     files: dict[str, str] = {
@@ -471,7 +538,28 @@ def generate_job_bundle(project: Project, *, fusion: bool = True, target: str = 
     for generated in steps:
         if generated.step.id not in pipeline_ids:
             files[f"src/{generated.step.id}.sql"] = generated.notebook
-    deps = _depends_on(flow, project)
+    ingest = _ingest_tasks(project, branching)
+    for source, key in ingest.items():
+        reason = branching.unresolved[source] if branching else ""
+        message = f"dku2dbx: source {source} is not branched yet ({reason}): see a_brancher.md"
+        files[f"src/{key}.sql"] = (
+            CELL.join(
+                [
+                    NOTEBOOK_HEADER
+                    + "\n"
+                    + _comment(
+                        [
+                            header,
+                            f"Substitute ingestion of the source {source} (phase 7).",
+                            f"NOT BRANCHED: {reason}",
+                        ]
+                    ),
+                    f"SELECT raise_error({exp.Literal.string(message).sql(dialect=DIALECT)});",
+                ]
+            )
+            + "\n"
+        )
+    deps = _depends_on(flow, project, ingest)
 
     def tasks(step_ids: list[str]) -> list[dict[str, Any]]:
         return _job_tasks(
@@ -552,6 +640,7 @@ def generate_job_bundle(project: Project, *, fusion: bool = True, target: str = 
             libraries=[f"../src/pipeline/{s.id}.sql" for s in flow.steps if s.id in pipeline_ids],
         )
     bundle = Bundle(
+        branching=branching,
         project=project.key,
         files=files,
         steps=steps,
@@ -625,6 +714,16 @@ def generation_report(
         "",
     ]
     lines += [f"- {g.step.id} : {'; '.join(g.reasons)}" for g in manual_steps] or ["(aucune)"]
+    lines += ["", "## Sources (phase 7)", ""]
+    if bundle.branching is None:
+        lines.append("Branchement non demandé : les sources gardent leur nom Dataiku.")
+    else:
+        lines.append(
+            f"{len(bundle.branching.resolved)} branchée(s), "
+            f"**{len(bundle.branching.unresolved)} à brancher** (mapping "
+            f"`{bundle.branching.source_file}`) ; chacune a une tâche d'ingestion qui échoue :"
+        )
+        lines += [f"- {n} : {why}" for n, why in sorted(bundle.branching.unresolved.items())]
     lines += ["", "## Scénarios", ""]
     for job in bundle.scenarios:
         status = (
