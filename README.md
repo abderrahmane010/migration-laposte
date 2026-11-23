@@ -11,13 +11,27 @@ Prérequis : [uv](https://docs.astral.sh/uv/). Java 17+ est aussi nécessaire po
 uv sync                                         # crée .venv et installe les dépendances (uv.lock)
 uv run pre-commit install                       # installe les hooks Git
 uv run dku2dbx --help                           # CLI
-uv run dku2dbx analyze export.zip --dump-ir     # écrit out/<projet>/ir.json (modèle interne)
+uv run dku2dbx analyze exports/ --out out/      # analyse : inventaire, classement, score, vagues
+uv run dku2dbx analyze export.zip --dump-ir     # un seul projet, avec en plus out/<projet>/ir.json
 uv run python tests/fixtures/make_fixture.py    # régénère les exports synthétiques
 uv run pytest                                   # tests
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 ```
 
 Les exports réels vont dans `exports/` et les artefacts générés dans `out/`. Ces deux dossiers sont ignorés par Git.
+
+## Analyser (phase 2)
+
+`dku2dbx analyze` lit un export ZIP, ou tous les ZIP d'un dossier, et écrit dans `out/` :
+
+| Fichier | Contenu |
+|---|---|
+| `<projet>/analyse.md`, `analyse.json` | inventaire, classe de chaque recette (`AUTO`, `LLM_REVIEW`, `MANUAL`), niveau de complexité et conditions atteintes, effort, dépendances |
+| `portefeuille.csv` | une ligne par projet |
+| `vagues.md` | ordre de migration : producteurs avant consommateurs, cycles regroupés |
+| `catalogue_processeurs.md`, `.csv` | processeurs Prepare du plus fréquent au moins fréquent (ordre de la phase 4) |
+
+La classe d'une recette est sa **classe cible** prévue par la ROADMAP ; la colonne « traducteur disponible » dit si le traducteur existe déjà. Seuils et jours d'effort sont dans `config/scoring.yaml`, **à calibrer sur le pilote** (`--scoring` pour une autre grille). Un projet lu via l'API par le pont `dku2dbx_bridge` s'analyse de la même façon : `dku2dbx analyze out/<projet>/virtual_export.zip`.
 
 ## Clé d'API Dataiku
 
