@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from dku2dbx.generate.partitions import PARTITION_SPECS
 from dku2dbx.model.ir import Project, Scenario
 from dku2dbx.simplify.flow import SimplifiedFlow
 
@@ -36,6 +37,8 @@ class ScenarioJob:
     not_translated: list[str] = field(default_factory=list)
     """Why the scenario is MANUAL (then no job is generated)."""
     warnings: list[str] = field(default_factory=list)
+    date_offset: str = "0"
+    """Default of the date_offset job parameter (partition built, H-53)."""
 
     @property
     def manual(self) -> bool:
@@ -85,6 +88,38 @@ def _triggers(job: ScenarioJob, scenario: Scenario, tables_prefix: str) -> None:
             job.warnings.append(f"{label} non traduit (paramètres {sorted(trigger.params)})")
 
 
+def _builds(job: ScenarioJob, scenario: Scenario) -> tuple[set[str], set[str]]:
+    """Datasets the scenario builds, and the partitions it asks for."""
+    targets: set[str] = set()
+    specs: set[str] = set()
+    for step in scenario.steps:
+        if step.type not in MAPPED_STEP_TYPES:
+            job.not_translated.append(f"step {step.id or step.type} de type {step.type}")
+            continue
+        job_type = step.params.get("jobType", "RECURSIVE_BUILD")
+        if job_type not in MAPPED_JOB_TYPES:
+            job.not_translated.append(f"step {step.id} : jobType {job_type}")
+        for build in step.params.get("builds") or []:
+            if build.get("type", "DATASET") != "DATASET":
+                job.not_translated.append(f"step {step.id} : construit un {build.get('type')}")
+                continue
+            targets.add(str(build.get("itemId")))
+            if build.get("partitionsSpec"):
+                specs.add(str(build["partitionsSpec"]))
+    return targets, specs
+
+
+def _partition_offset(job: ScenarioJob, specs: set[str]) -> None:
+    if sorted(specs - set(PARTITION_SPECS)) or len(specs) > 1:
+        job.not_translated.append(f"partitions construites {sorted(specs)} : non traduites")
+    elif specs:
+        job.date_offset = PARTITION_SPECS[specs.pop()]
+        job.warnings.append(
+            f"partition construite : aujourd'hui moins {job.date_offset} jour(s) "
+            "dans le fuseau du job (paramètres date, date_offset, timezone)"
+        )
+
+
 def scenario_jobs(project: Project, flow: SimplifiedFlow, bundle_name: str) -> list[ScenarioJob]:
     jobs = []
     for scenario in project.scenarios:
@@ -92,24 +127,8 @@ def scenario_jobs(project: Project, flow: SimplifiedFlow, bundle_name: str) -> l
         job = ScenarioJob(scenario=scenario, key=key)
         if scenario.type != "step_based":
             job.not_translated.append(f"scénario de type {scenario.type} (Python) : MANUAL")
-        targets: set[str] = set()
-        for step in scenario.steps:
-            if step.type not in MAPPED_STEP_TYPES:
-                job.not_translated.append(f"step {step.id or step.type} de type {step.type}")
-                continue
-            job_type = step.params.get("jobType", "RECURSIVE_BUILD")
-            if job_type not in MAPPED_JOB_TYPES:
-                job.not_translated.append(f"step {step.id} : jobType {job_type}")
-            for build in step.params.get("builds") or []:
-                if build.get("type", "DATASET") != "DATASET":
-                    job.not_translated.append(f"step {step.id} : construit un {build.get('type')}")
-                    continue
-                targets.add(str(build.get("itemId")))
-                if build.get("partitionsSpec"):
-                    job.warnings.append(
-                        f"step {step.id} : partitions « {build['partitionsSpec']} » de "
-                        f"{build.get('itemId')} → paramètre de date (partitions : à venir)"
-                    )
+        targets, specs = _builds(job, scenario)
+        _partition_offset(job, specs)
         if not scenario.active:
             job.warnings.append("scénario inactif dans Dataiku : job généré en pause")
         job.steps = _upstream(flow, project, targets)

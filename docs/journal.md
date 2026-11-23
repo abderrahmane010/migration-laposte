@@ -293,7 +293,8 @@ Phase 5 validée par le responsable le 2026-11-23. Décision : une table **const
 - **Checks** (H-52) : `recordCountInRange` → `assert_true` après l'écriture ; les autres types sont listés.
 - **`GENERATION.md`** dans le bundle : étapes à migrer à la main, scénarios (planification, éléments non traduits), variables, checks non traduits.
 
+- **Partitions** (H-53) : colonne `DATE` de partition, `CREATE TABLE IF NOT EXISTS` puis `INSERT INTO … REPLACE WHERE`, entrées « même jour » lues sur la seule partition construite ; paramètres `date`, `date_offset`, `timezone` (le job de scénario reprend le fuseau et le décalage `PREVIOUS_DAY`) ; partitionnements et dépendances non traduits → étape à migrer à la main. Testé sur PySpark avec des paramètres nommés.
+
 ### Reste à faire
 
-- Partitions : colonne de date et `INSERT INTO … REPLACE WHERE`, paramètre de date du job (UTC / Paris).
 - Cible B : Lakeflow pipeline.

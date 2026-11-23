@@ -21,7 +21,7 @@ resources:
 {%- endfor %}
 {%- endif %}
       parameters:
-{%- for p in parameters %}
+{%- for p in job.parameters %}
         - name: {{ p.name | tojson }}
           default: {{ p.default | tojson }}
 {%- endfor %}

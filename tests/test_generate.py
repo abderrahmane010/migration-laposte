@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 
 from dku2dbx.cli import NOT_IMPLEMENTED_EXIT_CODE, app
 from dku2dbx.generate.bundle import CELL, generate_job_bundle, write_bundle
+from dku2dbx.generate.partitions import PARTITION_DATE_SQL
 from dku2dbx.generate.scenarios import scenario_jobs
 from dku2dbx.simplify.flow import simplify_flow
 from tests.fixtures import make_fixture as mf
@@ -244,7 +245,8 @@ def test_scenario_becomes_a_scheduled_job_of_its_steps() -> None:
 def test_scenario_report_lists_what_is_not_translated() -> None:
     report = generate_job_bundle(fixture("DEMO_COMPLEXE")).files["GENERATION.md"]
     assert "déclencheur t_src (ds_modified) inactif dans Dataiku : non repris" in report
-    assert "partitions « PREVIOUS_DAY »" in report
+    assert "partition construite : aujourd'hui moins 1 jour(s)" in report
+    assert "Partitions (H-53)" in report
 
 
 def test_python_scenario_and_unknown_steps_are_manual(tmp_path: Path) -> None:
@@ -314,3 +316,105 @@ def test_record_count_check_runs_on_spark(spark: Any) -> None:
     spark.createDataFrame([], "depot_id int").createOrReplaceTempView("daily_depot_kpis")
     with pytest.raises(Exception, match="chk_rows"):
         spark.sql(sql).collect()
+
+
+# --------------------------------------------------------------------------- #
+# Partitions (H-53)
+# --------------------------------------------------------------------------- #
+def _insert(bundle_files: dict[str, str], table_name: str) -> Any:
+    for path, text in bundle_files.items():
+        if path.endswith(".sql"):
+            for cell in text.split(CELL):
+                if cell.startswith(f"INSERT INTO `{table_name}`"):
+                    return sqlglot.parse_one(cell.rstrip(";"), read="databricks")
+    raise AssertionError(table_name)
+
+
+def test_partitioned_output_replaces_its_partition() -> None:
+    files = generate_job_bundle(fixture("DEMO_COMPLEXE")).files
+    notebook = next(t for t in files.values() if "INSERT INTO `events_sync`" in t)
+    assert "CREATE TABLE IF NOT EXISTS `events_sync` (" in notebook
+    assert "`day` DATE" in notebook  # the partition becomes a DATE column
+    insert = _insert(files, "events_sync")
+    assert insert.args["where"].sql(dialect="databricks").startswith("`day` = COALESCE(")
+    assert "dépendance de partition" not in notebook  # applied, so no longer a warning
+
+
+def test_partition_parameters_per_job() -> None:
+    jobs = _jobs("DEMO_COMPLEXE")
+    full = {p["name"]: p["default"] for p in jobs["dku2dbx_demo_complexe_job"]["parameters"]}
+    daily = {
+        p["name"]: p["default"]
+        for p in jobs["dku2dbx_demo_complexe_scenario_daily_build"]["parameters"]
+    }
+    assert full["date"] == "" and full["date_offset"] == "0"
+    assert full["timezone"] == "${var.partition_timezone}"
+    assert daily["date_offset"] == "1"  # PREVIOUS_DAY
+    assert daily["timezone"] == "Europe/Paris"  # the scenario time zone
+    config = yaml.safe_load(generate_job_bundle(fixture("DEMO_COMPLEXE")).files["databricks.yml"])
+    assert config["variables"]["partition_timezone"]["default"] == "Europe/Paris"
+
+
+def test_no_partition_parameters_without_partitions() -> None:
+    job = _jobs("DEMO_SIMPLE")["dku2dbx_demo_simple_job"]
+    assert "date" not in {p["name"] for p in job["parameters"]}
+
+
+@pytest.mark.spark
+def test_partitioned_write_reads_and_writes_only_the_day(spark: Any) -> None:
+    insert = _insert(generate_job_bundle(fixture("DEMO_COMPLEXE")).files, "events_sync")
+    day1, day2 = datetime(2026, 3, 1), datetime(2026, 3, 2)
+    rows = [("e1", day1), ("e2", day2), ("e3", day2)]
+    spark.createDataFrame(
+        [(e, "p", 1, 1, ts, "OK", 0, 1.0, False, ts.date()) for e, ts in rows],
+        "event_id string, parcel_id string, depot_id int, customer_id long, event_ts timestamp,"
+        " status string, delay_minutes int, amount_eur double, internal_flag boolean, day date",
+    ).createOrReplaceTempView("parcels_events")
+    select = insert.expression.sql(dialect="databricks")
+    params = {"date": "2026-03-02", "date_offset": "0", "timezone": "Europe/Paris"}
+    got = sorted((r["event_id"], str(r["day"])) for r in spark.sql(select, args=params).collect())
+    assert got == [("e2", "2026-03-02"), ("e3", "2026-03-02")]
+
+
+@pytest.mark.spark
+def test_partition_date_uses_the_job_time_zone(spark: Any) -> None:
+    """Empty date: today in the time zone minus the offset (here in Paris)."""
+    paris = spark.sql(
+        f"SELECT {PARTITION_DATE_SQL} AS d, "
+        "DATE_SUB(CAST(FROM_UTC_TIMESTAMP(CURRENT_TIMESTAMP(), 'Europe/Paris') AS DATE), 1) AS e",
+        args={"date": "", "date_offset": "1", "timezone": "Europe/Paris"},
+    ).collect()[0]
+    assert paris["d"] == paris["e"]
+    explicit = spark.sql(
+        f"SELECT {PARTITION_DATE_SQL} AS d",
+        args={"date": "2026-01-15", "date_offset": "1", "timezone": "Europe/Paris"},
+    ).collect()[0]
+    assert str(explicit["d"]) == "2026-01-15"
+
+
+def _period_hour(d: dict[str, Any]) -> None:
+    d["partitioning"]["dimensions"][0]["params"]["period"] = "HOUR"
+
+
+def _two_dimensions(d: dict[str, Any]) -> None:
+    d["partitioning"]["dimensions"].append({"name": "region", "type": "value", "params": {}})
+
+
+@pytest.mark.parametrize("change", [_period_hour, _two_dimensions])
+def test_unmapped_partitionings_are_reported(tmp_path: Path, change: Any) -> None:
+    p = mf.build_demo_complexe()
+    change(next(d for d in p.datasets if d["name"] == "events_sync"))
+    bundle = generate_job_bundle(read_files(tmp_path, p.files()))
+    [step] = [g for g in bundle.steps if "events_sync" in g.step.outputs]
+    assert not step.translated
+    assert any("partitioning" in r for r in step.reasons)
+
+
+def test_unmapped_partition_dependency_is_reported(tmp_path: Path) -> None:
+    p = mf.build_demo_complexe()
+    rcp = next(r for r, _ in p.recipes if r["name"] == "sync_events")
+    rcp["inputs"]["main"]["items"][0]["deps"] = [{"func": "time_range", "params": {}}]
+    bundle = generate_job_bundle(read_files(tmp_path, p.files()))
+    [step] = [g for g in bundle.steps if "events_sync" in g.step.outputs]
+    assert not step.translated
+    assert any("partition dependency" in r and "time_range" in r for r in step.reasons)

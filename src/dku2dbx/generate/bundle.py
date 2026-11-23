@@ -24,6 +24,12 @@ from sqlglot import exp
 
 from dku2dbx import __version__
 from dku2dbx.errors import Dku2dbxError, UnsupportedConstruct
+from dku2dbx.generate.partitions import (
+    DayPartition,
+    day_partition,
+    filter_partitioned_inputs,
+    partition_date,
+)
 from dku2dbx.generate.scenarios import ScenarioJob, scenario_jobs
 from dku2dbx.generate.templating import render
 from dku2dbx.model.ir import Project
@@ -31,7 +37,7 @@ from dku2dbx.simplify.flow import SimplifiedFlow, Step, simplify_flow
 from dku2dbx.translate.engine import payload_sha256, translate_project
 from dku2dbx.translate.model import ProjectTranslation, TranslatedOutput
 from dku2dbx.translate.prepare.formula import JobParameter
-from dku2dbx.translate.sql import DIALECT, table
+from dku2dbx.translate.sql import DIALECT, column, table
 from dku2dbx.translate.visual.types import spark_type
 
 NOTEBOOK_HEADER = "-- Databricks notebook source"
@@ -99,8 +105,8 @@ class _StepBuilder:
 
     def _query(self, dataset: str, inlined: set[str]) -> exp.Query:
         """The query writing ``dataset``, with the inlined tables it reads as CTEs."""
-        recipe, output = self.outputs[dataset]
-        query = _parse(output.sql)
+        recipe = self.outputs[dataset][0]
+        query = self._recipe_query(dataset)
         needed: list[str] = []
 
         def collect(name: str) -> None:
@@ -120,7 +126,7 @@ class _StepBuilder:
             raise GenerateError(f"{recipe}: CTE names clash with inlined tables {sorted(clash)}")
         ctes = [
             exp.CTE(
-                this=_parse(self.outputs[name][1].sql),
+                this=self._recipe_query(name),
                 alias=exp.TableAlias(this=exp.to_identifier(name, quoted=True)),
             )
             for name in needed
@@ -128,7 +134,18 @@ class _StepBuilder:
         query.set("with_", exp.With(expressions=[*ctes, *(own.expressions if own else [])]))
         return query
 
+    def _recipe_query(self, dataset: str) -> exp.Query:
+        """The translated query of a recipe output, reading only the partition it builds."""
+        recipe, output = self.outputs[dataset]
+        return filter_partitioned_inputs(
+            _parse(output.sql), self.project.recipe(recipe), self.project
+        )
+
     def _statement(self, dataset: str, query: exp.Query, append: bool) -> list[str]:
+        recipe = self.outputs[dataset][0]
+        part = day_partition(self.project.dataset(dataset), recipe)
+        if part is not None:
+            return self._partitioned(dataset, query, append, part)
         target = table(dataset)
         if not append:
             create = exp.Create(this=target, kind="TABLE", replace=True, expression=query)
@@ -143,6 +160,39 @@ class _StepBuilder:
         schema = exp.Schema(this=target.copy(), expressions=columns)
         create = exp.Create(this=schema, kind="TABLE", exists=True)
         insert = exp.Insert(this=target.copy(), expression=query)
+        return [
+            create.sql(dialect=DIALECT, pretty=True) + ";",
+            insert.sql(dialect=DIALECT, pretty=True) + ";",
+        ]
+
+    def _partitioned(
+        self, dataset: str, query: exp.Query, append: bool, part: DayPartition
+    ) -> list[str]:
+        """CREATE TABLE IF NOT EXISTS, then INSERT INTO … REPLACE WHERE the partition (H-53)."""
+        recipe = self.outputs[dataset][0]
+        target = table(dataset)
+        columns = [
+            exp.ColumnDef(
+                this=exp.to_identifier(c.name, quoted=True), kind=spark_type(c.type, recipe, c.name)
+            )
+            for c in self.project.dataset(dataset).columns
+        ]
+        rows: exp.Query = query
+        if not part.in_schema:
+            columns.append(
+                exp.ColumnDef(
+                    this=exp.to_identifier(part.column, quoted=True),
+                    kind=exp.DataType.build("DATE"),
+                )
+            )
+            rows = exp.select(
+                exp.Star(), exp.alias_(partition_date(), part.column, quoted=True)
+            ).from_(query.subquery("partition_rows"))
+        schema = exp.Schema(this=target.copy(), expressions=columns)
+        create = exp.Create(this=schema, kind="TABLE", exists=True)
+        insert = exp.Insert(this=target.copy(), expression=rows)
+        if not append:
+            insert.set("where", exp.EQ(this=column(part.column), expression=partition_date()))
         return [
             create.sql(dialect=DIALECT, pretty=True) + ";",
             insert.sql(dialect=DIALECT, pretty=True) + ";",
@@ -164,7 +214,11 @@ class _StepBuilder:
         lines += [f"Inlined as CTE: {', '.join(step.inlined)}"] if step.inlined else []
         for name in step.recipes:
             if name in self.translated:
-                lines += [f"WARNING ({name}): {w}" for w in self.translated[name].warnings]
+                lines += [
+                    f"WARNING ({name}): {w}"
+                    for w in self.translated[name].warnings
+                    if not w.startswith("dépendance de partition")  # applied here (H-53)
+                ]
         return lines
 
     def build(self, step: Step) -> GeneratedStep:
@@ -237,6 +291,10 @@ def _depends_on(flow: SimplifiedFlow, project: Project) -> dict[str, list[str]]:
         upstream = sorted({writer[t] for t in reads if t in writer and writer[t] != step.id})
         deps[step.id] = [SCHEMA_TASK, *upstream]
     return deps
+
+
+def _has_partitions(project: Project, flow: SimplifiedFlow) -> bool:
+    return any(project.dataset(t).partitioning for s in flow.steps for t in s.outputs)
 
 
 def _variables(project: Project) -> dict[str, JobParameter]:
@@ -326,18 +384,43 @@ def generate_job_bundle(project: Project, *, fusion: bool = True) -> Bundle:
         {"name": "schema", "default": "${var.schema}"},
         *[{"name": p.name, "default": f"${{var.{p.name}}}"} for p in params.values()],
     ]
+    partitioned = _has_partitions(project, flow)
+
+    def job_parameters(offset: str = "0", zone: str = "${var.partition_timezone}") -> list[Any]:
+        if not partitioned:
+            return parameters
+        return [
+            *parameters,
+            {"name": "date", "default": ""},  # empty: today in `timezone` minus `date_offset`
+            {"name": "date_offset", "default": offset},
+            {"name": "timezone", "default": zone},
+        ]
+
+    for job in jobs:
+        scenario = next((j for j in scenarios if j.key == job["key"]), None)
+        if scenario is None:
+            job["parameters"] = job_parameters()
+        else:
+            zone = (scenario.schedule or {}).get("timezone_id", "${var.partition_timezone}")
+            job["parameters"] = job_parameters(scenario.date_offset, zone)
     variables = [
         {"name": p.name, "description": f"Variable Dataiku ${{{v}}}", "default": _default(p.value)}
         for v, p in params.items()
     ]
+    if partitioned:
+        variables.append(
+            {
+                "name": "partition_timezone",
+                "description": "Fuseau du calcul de la date de partition (à vérifier)",
+                "default": "Europe/Paris",
+            }
+        )
     files["databricks.yml"] = render(
         "databricks.yml.j2", header=header, bundle_name=name, variables=variables
     )
-    files["resources/jobs.yml"] = render(
-        "job.yml.j2", header=header, jobs=jobs, parameters=parameters
-    )
+    files["resources/jobs.yml"] = render("job.yml.j2", header=header, jobs=jobs)
     bundle = Bundle(project=project.key, files=files, steps=steps, scenarios=scenarios)
-    files["GENERATION.md"] = generation_report(project, bundle, params)
+    files["GENERATION.md"] = generation_report(project, bundle, params, partitioned)
     return bundle
 
 
@@ -355,7 +438,9 @@ def write_bundle(bundle: Bundle, out: Path) -> list[Path]:
     return written
 
 
-def generation_report(project: Project, bundle: Bundle, params: dict[str, JobParameter]) -> str:
+def generation_report(
+    project: Project, bundle: Bundle, params: dict[str, JobParameter], partitioned: bool
+) -> str:
     """GENERATION.md: what the bundle does, and everything left to a human."""
     manual_steps = [g for g in bundle.steps if not g.translated]
     lines = [
@@ -374,6 +459,23 @@ def generation_report(project: Project, bundle: Bundle, params: dict[str, JobPar
         "Avant de déployer : renseigner `catalog`, `schema` et `admin_group` dans "
         "`databricks.yml` (valeurs fictives entre crochets).",
         "",
+    ]
+    if partitioned:
+        lines += [
+            "Partitions (H-53) : la date construite est le paramètre `date`, ou, s'il est vide, "
+            "aujourd'hui dans `timezone` moins `date_offset` jours. Chaque table partitionnée "
+            "a une colonne de date ; une source partitionnée doit en avoir une une fois "
+            "branchée (phase 7). Vérifier `partition_timezone` dans `databricks.yml`.",
+            "",
+        ]
+    never = sorted(r.name for r in project.recipes if r.never_recompute_existing_partitions)
+    if never:
+        lines += [
+            "Recettes « ne jamais recalculer les partitions existantes » : le job recalcule "
+            f"la partition demandée à chaque exécution ({', '.join(never)}).",
+            "",
+        ]
+    lines += [
         "## Étapes à migrer à la main",
         "",
     ]
