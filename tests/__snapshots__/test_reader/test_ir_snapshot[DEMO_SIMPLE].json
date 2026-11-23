@@ -3,7 +3,7 @@
     "generator": "dku2dbx",
     "generator_version": "0.0.1",
     "source_file": "DEMO_SIMPLE.zip",
-    "source_sha256": "61d0bd34d941d421f5701f968392bd96423cb90096fe58da7f3ac45af7928e40"
+    "source_sha256": "7d29ca71af5ba0c85d5db9a18dcbc9b6f0cd16e60d659c6c181af0f6980c8482"
   },
   "project": {
     "datasets": [
@@ -597,29 +597,40 @@
           }
         },
         "payload": {
+          "computedColumns": [],
+          "enlargeYourBits": false,
           "globalCount": true,
           "keys": [
             {
               "column": "customer_id"
             }
           ],
+          "outputColumnNameOverrides": {},
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
           "preFilter": {
+            "distinct": false,
             "enabled": false
           },
           "values": [
             {
               "avg": true,
               "column": "amount_eur",
+              "concat": false,
+              "concatDistinct": false,
               "count": false,
               "countDistinct": false,
               "first": false,
+              "firstLastNotNull": false,
               "last": false,
               "max": false,
               "min": false,
-              "sum": true
+              "stddev": false,
+              "sum": true,
+              "sum2": false,
+              "type": "double"
             }
           ]
         },
@@ -668,6 +679,7 @@
           }
         },
         "payload": {
+          "computedColumns": [],
           "enableAutoCastInJoinConditions": false,
           "joins": [
             {
@@ -683,31 +695,90 @@
                     "name": "customer_id",
                     "table": 1
                   },
+                  "dateDiffUnit": "DAY",
+                  "maxDistance": 0,
+                  "maxMatches": 1,
                   "normalizeText": false,
+                  "strict": false,
                   "type": "EQ"
                 }
               ],
+              "outerJoinOnTheLeft": true,
+              "rightLimit": {},
               "table1": 0,
               "table2": 1,
               "type": "LEFT"
             }
           ],
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
-          "selectedColumns": {
-            "mode": "ALL"
-          },
+          "selectedColumns": [
+            {
+              "name": "order_id",
+              "table": 0,
+              "type": "bigint"
+            },
+            {
+              "name": "customer_id",
+              "table": 0,
+              "type": "bigint"
+            },
+            {
+              "name": "order_date",
+              "table": 0,
+              "type": "date"
+            },
+            {
+              "name": "amount",
+              "table": 0,
+              "type": "double"
+            },
+            {
+              "name": "status",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "amount_eur",
+              "table": 0,
+              "type": "double"
+            },
+            {
+              "name": "original_dataset",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "name",
+              "table": 1,
+              "type": "string"
+            },
+            {
+              "name": "segment",
+              "table": 1,
+              "type": "string"
+            }
+          ],
           "virtualInputs": [
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 0,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             },
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 1,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             }
@@ -918,18 +989,31 @@
           "mode": "UNION",
           "originColumnName": "original_dataset",
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
+          "selectedColumns": [
+            "order_id",
+            "customer_id",
+            "order_date",
+            "amount",
+            "status",
+            "amount_eur"
+          ],
           "virtualInputs": [
             {
               "index": 0,
+              "originLabel": "orders_prepared",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             },
             {
               "index": 1,
+              "originLabel": "orders_archive",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             }
@@ -973,25 +1057,46 @@
           }
         },
         "payload": {
-          "computeRank": true,
-          "computeRowNumber": true,
+          "computedColumns": [],
+          "cumeDist": false,
+          "denseRank": false,
+          "ntile": false,
+          "ntileValues": "",
+          "outputColumnNameOverrides": {},
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
           "preFilter": {
+            "distinct": false,
             "enabled": false
           },
+          "rank": true,
+          "rowNumber": false,
           "values": [
             {
               "avg": false,
               "column": "amount_eur",
+              "concat": false,
+              "concatDistinct": false,
               "count": false,
               "countDistinct": false,
+              "dateDiffUnit": "DAY",
               "first": false,
+              "firstLastNotNull": false,
+              "lag": false,
+              "lagDiff": false,
+              "lagValues": "",
               "last": false,
+              "lead": false,
+              "leadDiff": false,
+              "leadValues": "",
               "max": false,
               "min": false,
-              "sum": true
+              "stddev": false,
+              "sum": true,
+              "sum2": false,
+              "type": "double"
             }
           ],
           "windows": [
@@ -999,6 +1104,9 @@
               "enableLimits": false,
               "enableOrdering": true,
               "enablePartitioning": true,
+              "followingRows": 0,
+              "limitFollowing": false,
+              "limitPreceding": false,
               "orders": [
                 {
                   "column": "order_date",
@@ -1007,7 +1115,11 @@
               ],
               "partitioningColumns": [
                 "customer_id"
-              ]
+              ],
+              "precedingRows": 0,
+              "windowLimitMode": "ROWS",
+              "windowLowerBound": 0,
+              "windowUpperBound": 0
             }
           ]
         },

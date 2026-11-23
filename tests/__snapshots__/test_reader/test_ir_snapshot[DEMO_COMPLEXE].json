@@ -3,7 +3,7 @@
     "generator": "dku2dbx",
     "generator_version": "0.0.1",
     "source_file": "DEMO_COMPLEXE.zip",
-    "source_sha256": "e209be7da1a956933b16ede144e97477458a0d2ac50007442cf991bf5a0c0f11"
+    "source_sha256": "eaa4314a362120629f88423fb21377dc1a70675d984af2ff28ffcefad371446c"
   },
   "project": {
     "datasets": [
@@ -1969,10 +1969,13 @@
               "column": "depot_id"
             }
           ],
+          "outputColumnNameOverrides": {},
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
           "preFilter": {
+            "distinct": false,
             "enabled": false
           }
         },
@@ -2014,40 +2017,57 @@
           }
         },
         "payload": {
+          "computedColumns": [],
+          "enlargeYourBits": false,
           "globalCount": true,
           "keys": [
             {
               "column": "depot_id"
             }
           ],
+          "outputColumnNameOverrides": {},
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
           "preFilter": {
+            "distinct": false,
             "enabled": false
           },
           "values": [
             {
               "avg": true,
               "column": "delay_minutes",
+              "concat": false,
+              "concatDistinct": false,
               "count": false,
               "countDistinct": false,
               "first": false,
+              "firstLastNotNull": false,
               "last": false,
               "max": false,
               "min": false,
-              "sum": false
+              "stddev": false,
+              "sum": false,
+              "sum2": false,
+              "type": "double"
             },
             {
               "avg": false,
               "column": "amount_eur",
+              "concat": false,
+              "concatDistinct": false,
               "count": false,
               "countDistinct": false,
               "first": false,
+              "firstLastNotNull": false,
               "last": false,
               "max": false,
               "min": false,
-              "sum": true
+              "stddev": false,
+              "sum": true,
+              "sum2": false,
+              "type": "double"
             }
           ]
         },
@@ -2089,29 +2109,40 @@
           }
         },
         "payload": {
+          "computedColumns": [],
+          "enlargeYourBits": false,
           "globalCount": true,
           "keys": [
             {
               "column": "route_id"
             }
           ],
+          "outputColumnNameOverrides": {},
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
           "preFilter": {
+            "distinct": false,
             "enabled": false
           },
           "values": [
             {
               "avg": false,
               "column": "route_km",
+              "concat": false,
+              "concatDistinct": false,
               "count": false,
               "countDistinct": false,
               "first": false,
+              "firstLastNotNull": false,
               "last": false,
               "max": false,
               "min": false,
-              "sum": true
+              "stddev": false,
+              "sum": true,
+              "sum2": false,
+              "type": "double"
             }
           ]
         },
@@ -2160,6 +2191,7 @@
           }
         },
         "payload": {
+          "computedColumns": [],
           "enableAutoCastInJoinConditions": false,
           "joins": [
             {
@@ -2175,31 +2207,70 @@
                     "name": "customer_id",
                     "table": 1
                   },
+                  "dateDiffUnit": "DAY",
+                  "maxDistance": 0,
+                  "maxMatches": 1,
                   "normalizeText": false,
+                  "strict": false,
                   "type": "EQ"
                 }
               ],
+              "outerJoinOnTheLeft": true,
+              "rightLimit": {},
               "table1": 0,
               "table2": 1,
               "type": "INNER"
             }
           ],
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
-          "selectedColumns": {
-            "mode": "ALL"
-          },
+          "selectedColumns": [
+            {
+              "name": "customer_id",
+              "table": 0,
+              "type": "bigint"
+            },
+            {
+              "name": "siret",
+              "table": 1,
+              "type": "string"
+            },
+            {
+              "name": "company",
+              "table": 1,
+              "type": "string"
+            },
+            {
+              "name": "score",
+              "table": 0,
+              "type": "double"
+            },
+            {
+              "name": "is_good",
+              "table": 0,
+              "type": "boolean"
+            }
+          ],
           "virtualInputs": [
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 0,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             },
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 1,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             }
@@ -2250,6 +2321,7 @@
           }
         },
         "payload": {
+          "computedColumns": [],
           "enableAutoCastInJoinConditions": false,
           "joins": [
             {
@@ -2265,31 +2337,100 @@
                     "name": "depot_id",
                     "table": 1
                   },
+                  "dateDiffUnit": "DAY",
+                  "maxDistance": 0,
+                  "maxMatches": 1,
                   "normalizeText": false,
+                  "strict": false,
                   "type": "EQ"
                 }
               ],
+              "outerJoinOnTheLeft": true,
+              "rightLimit": {},
               "table1": 0,
               "table2": 1,
               "type": "LEFT"
             }
           ],
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
-          "selectedColumns": {
-            "mode": "ALL"
-          },
+          "selectedColumns": [
+            {
+              "name": "event_id",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "parcel_id",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "depot_id",
+              "table": 0,
+              "type": "int"
+            },
+            {
+              "name": "customer_id",
+              "table": 0,
+              "type": "bigint"
+            },
+            {
+              "name": "event_ts",
+              "table": 0,
+              "type": "timestamp"
+            },
+            {
+              "name": "status",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "delay_minutes",
+              "table": 0,
+              "type": "int"
+            },
+            {
+              "name": "amount_eur",
+              "table": 0,
+              "type": "double"
+            },
+            {
+              "name": "status_norm",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "depot_name",
+              "table": 1,
+              "type": "string"
+            },
+            {
+              "name": "department",
+              "table": 1,
+              "type": "string"
+            }
+          ],
           "virtualInputs": [
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 0,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             },
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 1,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             }
@@ -2340,6 +2481,7 @@
           }
         },
         "payload": {
+          "computedColumns": [],
           "enableAutoCastInJoinConditions": false,
           "joins": [
             {
@@ -2355,31 +2497,95 @@
                     "name": "depot_id",
                     "table": 1
                   },
+                  "dateDiffUnit": "DAY",
+                  "maxDistance": 0,
+                  "maxMatches": 1,
                   "normalizeText": false,
+                  "strict": false,
                   "type": "EQ"
                 }
               ],
+              "outerJoinOnTheLeft": true,
+              "rightLimit": {},
               "table1": 0,
               "table2": 1,
               "type": "INNER"
             }
           ],
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
-          "selectedColumns": {
-            "mode": "ALL"
-          },
+          "selectedColumns": [
+            {
+              "name": "event_id",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "parcel_id",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "depot_id",
+              "table": 0,
+              "type": "int"
+            },
+            {
+              "name": "customer_id",
+              "table": 0,
+              "type": "bigint"
+            },
+            {
+              "name": "event_ts",
+              "table": 0,
+              "type": "timestamp"
+            },
+            {
+              "name": "status",
+              "table": 0,
+              "type": "string"
+            },
+            {
+              "name": "delay_minutes",
+              "table": 0,
+              "type": "int"
+            },
+            {
+              "name": "amount_eur",
+              "table": 0,
+              "type": "double"
+            },
+            {
+              "name": "route_id",
+              "table": 1,
+              "type": "string"
+            },
+            {
+              "name": "route_km",
+              "table": 1,
+              "type": "double"
+            }
+          ],
           "virtualInputs": [
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 0,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             },
             {
+              "autoSelectColumns": false,
+              "computedColumns": [],
               "index": 1,
+              "outputColumnsSelectionMode": "MANUAL",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             }
@@ -2423,23 +2629,36 @@
           }
         },
         "payload": {
-          "aggregations": [
-            {
-              "column": "",
-              "type": "count"
-            }
-          ],
-          "explicitValues": [
-            "DELIVERED",
-            "FAILED"
-          ],
-          "keyColumns": [
-            "status_norm"
-          ],
-          "rowIdentifiers": [
+          "computedColumns": [],
+          "customAggregates": [],
+          "explicitIdentifiers": [
             "depot_id"
           ],
-          "valuesMode": "EXPLICIT"
+          "identifierColumnsSelection": "EXPLICIT",
+          "modalitySlugification": "NONE",
+          "otherColumns": [],
+          "pivots": [
+            {
+              "explicitValues": [
+                "DELIVERED",
+                "FAILED"
+              ],
+              "globalCount": true,
+              "keyColumns": [
+                "status_norm"
+              ],
+              "minOccLimit": 0,
+              "topnLimit": 20,
+              "valueColumns": [],
+              "valueLimit": "EXPLICIT"
+            }
+          ],
+          "preFilter": {
+            "distinct": false,
+            "enabled": false
+          },
+          "schemaComputation": "ONLY_IF_NO_METADATA",
+          "sortModalities": true
         },
         "payload_path": "project_config/recipes/pivot_status.pivot",
         "payload_raw": null,
@@ -3043,6 +3262,8 @@
           }
         },
         "payload": {
+          "computedColumns": [],
+          "denseRank": false,
           "orders": [
             {
               "column": "depot_id",
@@ -3053,9 +3274,13 @@
               "desc": true
             }
           ],
+          "outputColumnNameOverrides": {},
           "preFilter": {
+            "distinct": false,
             "enabled": false
-          }
+          },
+          "rank": false,
+          "rowNumber": false
         },
         "payload_path": "project_config/recipes/sort_depot_trend.sort",
         "payload_raw": null,
@@ -3110,19 +3335,35 @@
           }
         },
         "payload": {
+          "centileOrders": [],
+          "centileSplits": [],
           "column": "status_norm",
+          "computedColumns": [],
           "defaultOutputIndex": 2,
+          "filterSplits": [],
           "mode": "VALUES",
-          "values": [
+          "preFilter": {
+            "distinct": false,
+            "enabled": false
+          },
+          "randomColumns": [],
+          "randomColumnsSplits": [],
+          "randomSplits": [],
+          "rangeSplits": [],
+          "seed": 1337,
+          "valueSplits": [
             {
+              "caseSensitive": true,
               "outputIndex": 0,
               "value": "DELIVERED"
             },
             {
+              "caseSensitive": true,
               "outputIndex": 1,
               "value": "FAILED"
             }
-          ]
+          ],
+          "writeComputedColumnsInOutput": false
         },
         "payload_path": "project_config/recipes/split_status.split",
         "payload_raw": null,
@@ -3218,18 +3459,34 @@
           "mode": "UNION",
           "originColumnName": "original_dataset",
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
+          "selectedColumns": [
+            "event_id",
+            "parcel_id",
+            "depot_id",
+            "customer_id",
+            "event_ts",
+            "status",
+            "delay_minutes",
+            "amount_eur",
+            "status_norm"
+          ],
           "virtualInputs": [
             {
               "index": 0,
+              "originLabel": "events_failed",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             },
             {
               "index": 1,
+              "originLabel": "events_other",
               "preFilter": {
+                "distinct": false,
                 "enabled": false
               }
             }
@@ -3318,18 +3575,31 @@
           }
         },
         "payload": {
-          "bottomCount": 0,
+          "computedColumns": [],
+          "denseRank": false,
+          "duplicateCount": false,
+          "firstRows": 10,
           "keys": [],
+          "lastRows": 0,
           "orders": [
             {
               "column": "delay_minutes_avg",
               "desc": true
             }
           ],
+          "outputColumnNameOverrides": {},
           "preFilter": {
+            "distinct": false,
             "enabled": false
           },
-          "topCount": 10
+          "rank": false,
+          "retrievedColumns": [
+            "depot_id",
+            "day",
+            "delay_minutes_avg"
+          ],
+          "retrievedColumnsSelectionMode": "EXPLICIT",
+          "rowNumber": false
         },
         "payload_path": "project_config/recipes/topn_late_depots.topn",
         "payload_raw": null,
@@ -3369,27 +3639,46 @@
           }
         },
         "payload": {
-          "computeRank": true,
-          "computeRowNumber": true,
+          "computedColumns": [],
+          "cumeDist": false,
+          "denseRank": false,
+          "ntile": false,
+          "ntileValues": "",
+          "outputColumnNameOverrides": {},
           "postFilter": {
+            "distinct": false,
             "enabled": false
           },
           "preFilter": {
+            "distinct": false,
             "enabled": false
           },
+          "rank": false,
+          "rowNumber": false,
           "values": [
             {
               "avg": false,
               "column": "delay_minutes_avg",
+              "concat": false,
+              "concatDistinct": false,
               "count": false,
               "countDistinct": false,
+              "dateDiffUnit": "DAY",
               "first": false,
+              "firstLastNotNull": false,
               "lag": true,
+              "lagDiff": false,
               "lagValues": "1",
               "last": false,
+              "lead": false,
+              "leadDiff": false,
+              "leadValues": "",
               "max": false,
               "min": false,
-              "sum": false
+              "stddev": false,
+              "sum": false,
+              "sum2": false,
+              "type": "double"
             }
           ],
           "windows": [
@@ -3397,6 +3686,9 @@
               "enableLimits": false,
               "enableOrdering": true,
               "enablePartitioning": true,
+              "followingRows": 0,
+              "limitFollowing": false,
+              "limitPreceding": false,
               "orders": [
                 {
                   "column": "day",
@@ -3405,7 +3697,11 @@
               ],
               "partitioningColumns": [
                 "depot_id"
-              ]
+              ],
+              "precedingRows": 0,
+              "windowLimitMode": "ROWS",
+              "windowLowerBound": 0,
+              "windowUpperBound": 0
             }
           ]
         },

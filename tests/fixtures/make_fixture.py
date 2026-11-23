@@ -175,12 +175,20 @@ def shaker(steps: list[Json]) -> Json:
     return {"steps": steps, "columnsSelection": {"mode": "ALL"}, "origin": "PREPARE_RECIPE"}
 
 
+# ASSUMPTION (H-09h): filter shape seen on a real project (pre/post filters, Sample/Filter,
+# split): {enabled, distinct, uiData: {mode, conditions[]}}; plus "$status" (UI only).
 def no_filter() -> Json:
-    return {"enabled": False}
+    return {"enabled": False, "distinct": False}
 
 
 def formula_filter(expr: str) -> Json:
-    return {"enabled": True, "uiData": {"mode": "CUSTOM"}, "expression": expr}
+    # ASSUMPTION (H-09h): a formula filter has uiData.mode "CUSTOM" and an "expression"
+    # (mode values not observed yet).
+    return {"enabled": True, "distinct": False, "uiData": {"mode": "CUSTOM"}, "expression": expr}
+
+
+# Marker resolved in Project.files(): the column list is derived from the schemas.
+AUTO_COLUMNS = "__auto_columns__"
 
 
 def join_on(left: int, right: int, kind: str, pairs: list[tuple[str, str]]) -> Json:
@@ -189,6 +197,8 @@ def join_on(left: int, right: int, kind: str, pairs: list[tuple[str, str]]) -> J
         "table2": right,
         "type": kind,
         "conditionsMode": "AND",
+        "outerJoinOnTheLeft": True,
+        "rightLimit": {},
         "on": [
             {
                 "column1": {"table": left, "name": c1},
@@ -196,6 +206,10 @@ def join_on(left: int, right: int, kind: str, pairs: list[tuple[str, str]]) -> J
                 "type": "EQ",
                 "caseInsensitive": False,
                 "normalizeText": False,
+                "strict": False,
+                "maxDistance": 0,
+                "maxMatches": 1,
+                "dateDiffUnit": "DAY",
             }
             for c1, c2 in pairs
         ],
@@ -203,34 +217,83 @@ def join_on(left: int, right: int, kind: str, pairs: list[tuple[str, str]]) -> J
 
 
 def join_payload(n_inputs: int, joins: list[Json]) -> Json:
-    # ASSUMPTION (H-09a): join payload keys (virtualInputs, joins[].on[], postFilter).
+    # ASSUMPTION (H-09a), aligned on a real project: selectedColumns is a list of
+    # {name, table, type}; virtualInputs carry their pre-filter and selection mode.
     return {
-        "virtualInputs": [{"index": i, "preFilter": no_filter()} for i in range(n_inputs)],
+        "virtualInputs": [
+            {
+                "index": i,
+                "preFilter": no_filter(),
+                "autoSelectColumns": False,
+                "outputColumnsSelectionMode": "MANUAL",
+                "computedColumns": [],
+            }
+            for i in range(n_inputs)
+        ],
         "joins": joins,
-        "selectedColumns": {"mode": "ALL"},
+        "selectedColumns": AUTO_COLUMNS,
+        "computedColumns": [],
         "postFilter": no_filter(),
         "enableAutoCastInJoinConditions": False,
     }
 
 
-def agg(column: str, *aggs: str) -> Json:
-    flags = ["count", "countDistinct", "sum", "avg", "min", "max", "first", "last"]
-    return {"column": column, **{a: (a in aggs) for a in flags}}
+AGG_FLAGS = [
+    "count",
+    "countDistinct",
+    "sum",
+    "sum2",
+    "avg",
+    "stddev",
+    "min",
+    "max",
+    "first",
+    "last",
+    "firstLastNotNull",
+    "concat",
+    "concatDistinct",
+]
+
+
+def agg(column: str, *aggs: str, col_type: str = "double") -> Json:
+    return {"column": column, "type": col_type, **{a: (a in aggs) for a in AGG_FLAGS}}
 
 
 def grouping_payload(keys: list[str], values: list[Json]) -> Json:
-    # ASSUMPTION (H-09b): grouping payload keys (keys[].column, values[] with flags).
+    # ASSUMPTION (H-09b), aligned on a real project.
     return {
         "keys": [{"column": k} for k in keys],
         "values": values,
         "globalCount": True,
+        "computedColumns": [],
+        "outputColumnNameOverrides": {},
+        "enlargeYourBits": False,
         "preFilter": no_filter(),
         "postFilter": no_filter(),
     }
 
 
-def window_payload(partition: list[str], order: list[tuple[str, bool]], values: list[Json]) -> Json:
-    # ASSUMPTION (H-09c): window payload keys.
+def window_value(column: str, *aggs: str, lag: str = "", lead: str = "") -> Json:
+    value = agg(column, *aggs)
+    value.update(
+        {
+            "lag": bool(lag),
+            "lagValues": lag,
+            "lagDiff": False,
+            "lead": bool(lead),
+            "leadValues": lead,
+            "leadDiff": False,
+            "dateDiffUnit": "DAY",
+        }
+    )
+    return value
+
+
+def window_payload(
+    partition: list[str], order: list[tuple[str, bool]], values: list[Json], *, rank: bool = False
+) -> Json:
+    # ASSUMPTION (H-09c), aligned on a real project: rank flags at the root, explicit
+    # frame bounds on each window.
     return {
         "windows": [
             {
@@ -239,21 +302,38 @@ def window_payload(partition: list[str], order: list[tuple[str, bool]], values: 
                 "enableOrdering": bool(order),
                 "orders": [{"column": c, "desc": d} for c, d in order],
                 "enableLimits": False,
+                "windowLimitMode": "ROWS",
+                "limitPreceding": False,
+                "precedingRows": 0,
+                "limitFollowing": False,
+                "followingRows": 0,
+                "windowLowerBound": 0,
+                "windowUpperBound": 0,
             }
         ],
         "values": values,
-        "computeRank": True,
-        "computeRowNumber": True,
+        "rank": rank,
+        "rowNumber": False,
+        "denseRank": False,
+        "cumeDist": False,
+        "ntile": False,
+        "ntileValues": "",
+        "computedColumns": [],
+        "outputColumnNameOverrides": {},
         "preFilter": no_filter(),
         "postFilter": no_filter(),
     }
 
 
-def vstack_payload(n_inputs: int) -> Json:
-    # ASSUMPTION (H-09d): stack payload keys.
+def vstack_payload(n_inputs: int, origin_labels: list[str]) -> Json:
+    # ASSUMPTION (H-09d), aligned on a real project: selectedColumns is a list of names.
     return {
         "mode": "UNION",
-        "virtualInputs": [{"index": i, "preFilter": no_filter()} for i in range(n_inputs)],
+        "virtualInputs": [
+            {"index": i, "originLabel": origin_labels[i], "preFilter": no_filter()}
+            for i in range(n_inputs)
+        ],
+        "selectedColumns": AUTO_COLUMNS,
         "addOriginColumn": True,
         "originColumnName": "original_dataset",
         "postFilter": no_filter(),
@@ -282,6 +362,36 @@ class Project:
     def add_recipe(self, rcp: Json, payload: Json | str) -> None:
         self.recipes.append((rcp, payload))
 
+    def _schema(self, name: str) -> list[Json]:
+        return next(d["schema"]["columns"] for d in self.datasets if d["name"] == name)
+
+    def _resolve_columns(self, rcp: Json, payload: Json | str) -> Json | str:
+        """Fill an AUTO_COLUMNS selection from the output and input schemas."""
+        if not isinstance(payload, dict) or payload.get("selectedColumns") != AUTO_COLUMNS:
+            return payload
+        inputs = [i["ref"] for i in rcp["inputs"]["main"]["items"]]
+        output = rcp["outputs"]["main"]["items"][0]["ref"]
+        origin = payload.get("originColumnName") if payload.get("addOriginColumn") else None
+        selected: list[Any] = []
+        for col in self._schema(output):
+            if col["name"] == origin:
+                continue
+            table = next(
+                (
+                    t
+                    for t, ref in enumerate(inputs)
+                    if any(c["name"] == col["name"] for c in self._schema(ref))
+                ),
+                None,
+            )
+            if table is None:
+                continue
+            if rcp["type"] == "vstack":
+                selected.append(col["name"])
+            else:
+                selected.append({"name": col["name"], "table": table, "type": col["type"]})
+        return {**payload, "selectedColumns": selected}
+
     def files(self) -> dict[str, bytes]:
         """Return {path in ZIP: content} for this project."""
         files: dict[str, bytes] = {}
@@ -308,8 +418,9 @@ class Project:
         files["project_config/variables.json"] = _json({"standard": self.variables, "local": {}})
         for ds in self.datasets:
             files[f"project_config/datasets/{ds['name']}.json"] = _json(ds)
-        for rcp, payload in self.recipes:
+        for rcp, raw_payload in self.recipes:
             name, rtype = rcp["name"], rcp["type"]
+            payload = self._resolve_columns(rcp, raw_payload)
             files[f"project_config/recipes/{name}.json"] = _json(rcp)
             if isinstance(payload, str):
                 ext = CODE_PAYLOAD_EXT[rtype]
@@ -467,7 +578,7 @@ def build_demo_simple() -> Project:
             [ref("orders_prepared"), ref("orders_archive")],
             [out_ref("orders_all")],
         ),
-        vstack_payload(2),
+        vstack_payload(2, ["orders_prepared", "orders_archive"]),
     )
     p.add_recipe(
         recipe(
@@ -500,7 +611,9 @@ def build_demo_simple() -> Project:
             [out_ref("orders_ranked")],
             engine="SQL",
         ),
-        window_payload(["customer_id"], [("order_date", False)], [agg("amount_eur", "sum")]),
+        window_payload(
+            ["customer_id"], [("order_date", False)], [window_value("amount_eur", "sum")], rank=True
+        ),
     )
 
     p.exposed_objects = [
@@ -770,15 +883,26 @@ def build_demo_complexe() -> Project:
         "split",
         [ref("events_clean", SAME_DAY)],
         [out_ref("events_delivered"), out_ref("events_failed"), out_ref("events_other")],
-        # ASSUMPTION (H-09e): split payload keys.
+        # ASSUMPTION (H-09e), aligned on a real project: valueSplits[], one list per mode.
         {
             "mode": "VALUES",
             "column": "status_norm",
-            "values": [
-                {"value": "DELIVERED", "outputIndex": 0},
-                {"value": "FAILED", "outputIndex": 1},
+            "valueSplits": [
+                {"value": "DELIVERED", "caseSensitive": True, "outputIndex": 0},
+                {"value": "FAILED", "caseSensitive": True, "outputIndex": 1},
             ],
             "defaultOutputIndex": 2,
+            "filterSplits": [],
+            "rangeSplits": [],
+            "randomSplits": [],
+            "randomColumns": [],
+            "randomColumnsSplits": [],
+            "centileSplits": [],
+            "centileOrders": [],
+            "computedColumns": [],
+            "writeComputedColumnsInOutput": False,
+            "seed": 1337,
+            "preFilter": no_filter(),
         },
     )
     # 4 Distinct
@@ -790,6 +914,7 @@ def build_demo_complexe() -> Project:
         {
             "keys": [{"column": "depot_id"}],
             "globalCount": False,
+            "outputColumnNameOverrides": {},
             "preFilter": no_filter(),
             "postFilter": no_filter(),
         },
@@ -837,7 +962,7 @@ def build_demo_complexe() -> Project:
         window_payload(
             ["depot_id"],
             [("day", False)],
-            [{**agg("delay_minutes_avg"), "lag": True, "lagValues": "1"}],
+            [window_value("delay_minutes_avg", lag="1")],
         ),
         zone="z_kpi",
     )
@@ -847,12 +972,20 @@ def build_demo_complexe() -> Project:
         "topn",
         [ref("depot_trend")],
         [out_ref("top_late_depots")],
-        # ASSUMPTION (H-09f): topn payload keys.
+        # ASSUMPTION (H-09f), aligned on a real project: firstRows/lastRows, retrievedColumns.
         {
-            "topCount": 10,
-            "bottomCount": 0,
+            "firstRows": 10,
+            "lastRows": 0,
             "orders": [{"column": "delay_minutes_avg", "desc": True}],
             "keys": [],
+            "retrievedColumnsSelectionMode": "EXPLICIT",
+            "retrievedColumns": ["depot_id", "day", "delay_minutes_avg"],
+            "rank": False,
+            "rowNumber": False,
+            "denseRank": False,
+            "duplicateCount": False,
+            "computedColumns": [],
+            "outputColumnNameOverrides": {},
             "preFilter": no_filter(),
         },
         zone="z_kpi",
@@ -865,6 +998,11 @@ def build_demo_complexe() -> Project:
         [out_ref("depot_trend_sorted")],
         {
             "orders": [{"column": "depot_id", "desc": False}, {"column": "day", "desc": True}],
+            "rank": False,
+            "rowNumber": False,
+            "denseRank": False,
+            "computedColumns": [],
+            "outputColumnNameOverrides": {},
             "preFilter": no_filter(),
         },
         zone="z_kpi",
@@ -875,13 +1013,30 @@ def build_demo_complexe() -> Project:
         "pivot",
         [ref("events_clean")],
         [out_ref("status_by_depot")],
-        # ASSUMPTION (H-09g): pivot payload keys.
+        # ASSUMPTION (H-09g), aligned on a real project: pivots[] with keyColumns,
+        # explicitValues and valueColumns; explicitIdentifiers for the rows.
         {
-            "keyColumns": ["status_norm"],
-            "explicitValues": ["DELIVERED", "FAILED"],
-            "valuesMode": "EXPLICIT",
-            "rowIdentifiers": ["depot_id"],
-            "aggregations": [{"column": "", "type": "count"}],
+            "pivots": [
+                {
+                    "keyColumns": ["status_norm"],
+                    # ASSUMPTION (H-09g): "EXPLICIT" for explicit values (only TOP_N seen).
+                    "valueLimit": "EXPLICIT",
+                    "explicitValues": ["DELIVERED", "FAILED"],
+                    "topnLimit": 20,
+                    "minOccLimit": 0,
+                    "globalCount": True,
+                    "valueColumns": [],
+                }
+            ],
+            "identifierColumnsSelection": "EXPLICIT",
+            "explicitIdentifiers": ["depot_id"],
+            "otherColumns": [],
+            "modalitySlugification": "NONE",
+            "sortModalities": True,
+            "customAggregates": [],
+            "computedColumns": [],
+            "schemaComputation": "ONLY_IF_NO_METADATA",
+            "preFilter": no_filter(),
         },
         zone="z_kpi",
     )
@@ -891,7 +1046,7 @@ def build_demo_complexe() -> Project:
         "vstack",
         [ref("events_failed"), ref("events_other")],
         [out_ref("events_anomalies", append=True)],
-        vstack_payload(2),
+        vstack_payload(2, ["events_failed", "events_other"]),
     )
     # 13 Prepare anomalies
     add(
