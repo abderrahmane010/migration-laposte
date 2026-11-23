@@ -15,6 +15,7 @@ from typing import Any
 from sqlglot import exp
 
 from dku2dbx.errors import UnsupportedConstruct
+from dku2dbx.translate.prepare.dates import spark_pattern
 from dku2dbx.translate.prepare.formula import (
     BOOLEAN,
     NUMERIC_DKU_TYPES,
@@ -210,6 +211,45 @@ def column_renamer(ctx: StepContext, params: dict[str, Any]) -> StepResult:
     return StepResult(columns)
 
 
+def date_parser(ctx: StepContext, params: dict[str, Any]) -> StepResult:
+    """{columns, formats, timezone_id, lang}: parse text into a Dataiku date (timestamp).
+
+    ASSUMPTION (H-48): the column is parsed in place (an "outCol" is not mapped); the
+    first format that matches wins; the text is a local time in ``timezone_id`` and is
+    stored in UTC (the Spark session runs in UTC); an unparsable value gives NULL.
+    """
+    targets = set(_target_columns(ctx, params))
+    if params.get("outCol"):
+        raise ctx.fail("outCol", "parsing into another column is not mapped yet")
+    lang = params.get("lang", "auto")
+    formats = [str(f) for f in params.get("formats") or []]
+    if not formats:
+        raise ctx.fail("formats", "no format")
+    patterns = [spark_pattern(f, ctx.recipe, f"{ctx.processor}.formats") for f in formats]
+    if lang not in ("auto", "en", "english") and any("MMM" in f for f in formats):
+        raise ctx.fail("lang", f"'{lang}' for month names")
+    zone = str(params.get("timezone_id") or "UTC")
+    columns = []
+    for name, dku_type, expr in ctx.passthrough():
+        if name not in targets:
+            columns.append((name, dku_type, expr))
+            continue
+        if dku_type != "string":
+            raise ctx.fail("columns", f"'{name}' is {dku_type}, not text")
+        parsed = [
+            exp.func("try_to_timestamp", expr.copy(), exp.Literal.string(p)) for p in patterns
+        ]
+        local = (
+            parsed[0] if len(parsed) == 1 else exp.Coalesce(this=parsed[0], expressions=parsed[1:])
+        )
+        utc = exp.func("to_utc_timestamp", local, exp.Literal.string(zone))
+        columns.append((name, "date", utc))
+    return StepResult(
+        columns,
+        warnings=[f"{ctx.processor} : heure lue dans le fuseau {zone}, stockée en UTC"],
+    )
+
+
 # Processor type -> translator, by decreasing frequency in the phase 2 catalogue.
 PROCESSORS: dict[str, Callable[[StepContext, dict[str, Any]], StepResult]] = {
     "CreateColumnWithGREL": create_column_with_formula,
@@ -219,4 +259,5 @@ PROCESSORS: dict[str, Callable[[StepContext, dict[str, Any]], StepResult]] = {
     "FilterOnFormula": filter_on_formula,
     "FilterOnValue": filter_on_value,
     "ColumnRenamer": column_renamer,
+    "DateParser": date_parser,
 }

@@ -228,5 +228,6 @@ Phase 3 validée par le responsable le 2026-11-23, après traduction du projet r
 ### Points ouverts
 
 - **Format réel des paramètres des processeurs (H-47)** : non relevé. Le relevé du projet de diagnostic (3 étapes) le confirmera en partie ; un projet riche en Prepare est nécessaire pour un catalogue représentatif.
-- **Fonctions de formule** : 20 fonctions traduites ; le recensement anonyme du projet réel dira lesquelles ajouter (dates, conversions…). `DateParser` et les formats de date (piège « Patterns de date ») restent à faire.
+- **Fonctions de formule** : 20 fonctions traduites ; le recensement anonyme du projet réel dira lesquelles ajouter (dates, conversions…).
+- **Dates** (ajouté ensuite) : table de conversion des formats `SimpleDateFormat` → Spark (piège « Patterns de date », un bug de comptage des lettres trouvé par les tests) et processeur `DateParser` (fuseau déclaré → UTC, H-48), testés sur PySpark en hiver et en été.
 - **NULL dans `+`** (H-46) et `substring` (H-45) à vérifier sur Dataiku.
