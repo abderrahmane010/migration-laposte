@@ -208,3 +208,9 @@ Phase 2 validée par le responsable le 2026-11-23, grille de score conservée te
 - **Hypothèses à confirmer côté Dataiku** : cadre de fenêtre (H-40, le cas réel utilise `limitPreceding`), place des NULL au tri (H-34), clés NULL en jointure (H-37), noms des colonnes calculées (H-38, H-39, H-43), rôle de `input` dans un filtre et sensibilité à la casse (H-35).
 - **Fixtures corrigées en cours de phase** : `distinct_depots` (dédoublonnage incohérent) et `window_depot_trend` (tri sur une dimension de partition) ; les traducteurs ont détecté ces incohérences grâce au contrôle du schéma de sortie.
 - **Dépendances de partition** : signalées dans l'en-tête, appliquées par le job en phase 6.
+
+Phase 3 validée par le responsable le 2026-11-23, après traduction du projet réel (14 recettes visuelles sur 18 traduites, 4 refusées avec leur motif).
+
+## Phase 4 — Recette Prepare et langage de formules (démarrée le 2026-11-23)
+
+- **Format réel d'abord**, comme en phase 3 : la commande de structure anonymisée du pont couvre maintenant les étapes Prepare (chemins de paramètres par type de processeur) et un recensement des formules (noms de fonctions Dataiku, opérateurs, nombre de littéraux ; jamais le texte d'une formule).
