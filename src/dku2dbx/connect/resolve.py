@@ -126,10 +126,16 @@ def branch_sources(project: Project, config: ConnectionsConfig, source_file: str
             else:
                 result.resolved[name] = f"{target.catalog}.{target.schema_}.{local}"
             continue
-        if dataset.type in ("UploadedFiles", "Inline"):
+        if dataset.type == "UploadedFiles":
             result.unresolved[name] = (
-                f"dataset {dataset.type} : fichier à déposer dans un Volume Unity Catalog, "
+                "dataset UploadedFiles : fichier à déposer dans un Volume Unity Catalog, "
                 "puis à charger en table"
+            )
+            continue
+        if dataset.type == "Inline":
+            result.unresolved[name] = (
+                "dataset Inline (données saisies dans Dataiku) : à recréer en table de "
+                "référence Unity Catalog"
             )
             continue
         rule = config.connections.get(dataset.connection or "")

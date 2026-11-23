@@ -198,3 +198,14 @@ def test_unity_catalog_check() -> None:
             "colonnes absentes de lab.sales.DEMO_SIMPLE_orders_raw : amount, order_date, status"
         ),
     }
+
+
+def test_inline_dataset_becomes_a_reference_table(tmp_path: Path) -> None:
+    from tests.fixtures import make_fixture as mf  # noqa: PLC0415
+    from tests.test_translate_sync import read_files  # noqa: PLC0415
+
+    p = mf.build_demo_simple()
+    next(d for d in p.datasets if d["name"] == "customers")["type"] = "Inline"
+    result = branch_sources(read_files(tmp_path, p.files()), ConnectionsConfig(), "x")
+    assert "table de référence" in result.unresolved["customers"]
+    assert "Volume" not in result.unresolved["customers"]
