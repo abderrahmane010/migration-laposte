@@ -11,7 +11,7 @@ from syrupy.assertion import SnapshotAssertion
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 from typer.testing import CliRunner
 
-from dku2dbx.analyze.classify import classify
+from dku2dbx.analyze.classify import PHASE_3_TYPES, classify
 from dku2dbx.cli import app
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import read_export
@@ -211,3 +211,14 @@ def test_classification_sees_the_new_translators() -> None:
     assert available == {
         r.name for r in project.recipes if r.type in TRANSLATORS and r.name != "prepare_depots"
     }
+
+
+@pytest.mark.parametrize("key", ["DEMO_SIMPLE", "DEMO_COMPLEXE"])
+def test_phase_3_end_criterion_every_relational_recipe_is_translated(key: str) -> None:
+    """ROADMAP phase 3: all relational recipes of the fixtures are translated."""
+    project = fixture(key)
+    result = translate_project(project)
+    assert result.unsupported == []
+    relational = {r.name for r in project.recipes if r.type in PHASE_3_TYPES}
+    assert relational <= {t.recipe for t in result.translated}
+    assert set(TRANSLATORS) >= PHASE_3_TYPES

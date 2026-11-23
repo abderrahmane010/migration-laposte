@@ -190,3 +190,21 @@ Phase 2 validée par le responsable le 2026-11-23, grille de score conservée te
 - **Window** : agrégats (ceux de Group), `lag`/`lead` multiples, `rank`/`rowNumber`/`denseRank`, cadre `ROWS` toujours explicite et rappelé dans l'en-tête (H-40). La fixture Window de `DEMO_COMPLEXE` triait sur `day`, une dimension de partition et non une colonne : elle trie maintenant sur le retard moyen (Sort et Top N en aval ajustés).
 - **Split** (mode `VALUES`) : un `SELECT` par sortie (fichiers `<recette>__<sortie>.sql`), sortie par défaut avec les NULL et les valeurs sans règle, comparaison insensible à la casse, pré-filtre appliqué à toutes les sorties ; testé : chaque ligne tombe dans exactement une sortie. Les colonnes non texte et les autres modes sont refusés.
 - **Top N** : N premières et/ou M dernières lignes par groupe (`ROW_NUMBER`), pré-filtre avant le classement, départage déterministe des égalités par les autres colonnes avec avertissement (piège « Top N à égalité » couvert).
+- **Pivot** (valeurs explicites) : comptage et agrégats par valeur (`CASE WHEN`), identifiants en `GROUP BY` ; le pivot dynamique (`TOP_N`) est signalé (H-43).
+
+### Résultats
+
+- `uv run pytest` : **240 tests passés**, dont des exécutions sur PySpark local pour chaque traducteur et 14 snapshots de SQL.
+- Critères de fin de phase :
+  - les 11 types de la phase 3 sont couverts (les 10 de la ROADMAP, Sync et Sample/Filter comptés à part), chacun avec snapshot du SQL, exécution PySpark sur données synthétiques et cas d'erreur `UnsupportedConstruct` ;
+  - toutes les recettes relationnelles de `DEMO_SIMPLE` et `DEMO_COMPLEXE` sont traduites, sans refus (`test_phase_3_end_criterion_every_relational_recipe_is_translated`) ;
+  - `dku2dbx translate` écrit un fichier `.sql` par sortie dans `out/`, de façon reproductible.
+- `ruff check`, `ruff format --check` et `mypy --strict` : propres.
+- Pièges sémantiques couverts par un test : échantillon « premières lignes », tri et NULL, ordre d'une table, Top N à égalité, jointure et NULL, écart-type (refusé), cadre de fenêtre.
+
+### Points ouverts
+
+- **Sur le projet réel, encore refusés (voulu)** : les 2 Group et l'éventuel Window avec `stddev` ; le Split au pré-filtre `distinct` ; le Pivot dynamique (`TOP_N`) ; le Sample/Filter aléatoire (`RANDOM_FIXED_NB`). Chacun apparaît dans `translate_report.json` avec son motif.
+- **Hypothèses à confirmer côté Dataiku** : cadre de fenêtre (H-40, le cas réel utilise `limitPreceding`), place des NULL au tri (H-34), clés NULL en jointure (H-37), noms des colonnes calculées (H-38, H-39, H-43), rôle de `input` dans un filtre et sensibilité à la casse (H-35).
+- **Fixtures corrigées en cours de phase** : `distinct_depots` (dédoublonnage incohérent) et `window_depot_trend` (tri sur une dimension de partition) ; les traducteurs ont détecté ces incohérences grâce au contrôle du schéma de sortie.
+- **Dépendances de partition** : signalées dans l'en-tête, appliquées par le job en phase 6.

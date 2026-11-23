@@ -8,6 +8,7 @@ from dku2dbx.model.ir import Project, Recipe
 from dku2dbx.translate.model import Translation
 from dku2dbx.translate.visual.group import translate_grouping
 from dku2dbx.translate.visual.join import translate_join
+from dku2dbx.translate.visual.pivot import translate_pivot
 from dku2dbx.translate.visual.simple import translate_distinct, translate_sort, translate_vstack
 from dku2dbx.translate.visual.split import translate_split
 from dku2dbx.translate.visual.sync import translate_sampling, translate_sync
@@ -29,4 +30,5 @@ TRANSLATORS: dict[str, Translator] = {
     "window": translate_window,
     "split": translate_split,
     "topn": translate_topn,
+    "pivot": translate_pivot,
 }
