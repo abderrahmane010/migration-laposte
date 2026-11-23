@@ -105,4 +105,6 @@ Sans droit d'export, un projet réel a été lu via l'API par le pont `dku2dbx_b
 
 Les snapshots d'IR ne changent que par le champ vide `saved_models`. Résultats : `uv run pytest`, **72 tests passés** ; `ruff` et `mypy --strict` propres.
 
+Vérifié sur le projet réel après correction : 2 modèles enregistrés lus, et **aucune anomalie** `dku2dbx`. Seule reste l'erreur API attendue sur les paramètres du projet (droit d'administration).
+
 Il reste à faire : les dossiers gérés (managed folders) ne sont pas encore modélisés. Ils produiraient le même type de référence manquante, mais aucun n'a été rencontré.
