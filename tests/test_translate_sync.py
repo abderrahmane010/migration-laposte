@@ -15,7 +15,12 @@ from dku2dbx.analyze.classify import classify
 from dku2dbx.cli import app
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import read_export
-from dku2dbx.translate.engine import header, translate_project, write_translation
+from dku2dbx.translate.engine import (
+    header,
+    sql_file_name,
+    translate_project,
+    write_translation,
+)
 from dku2dbx.translate.visual import TRANSLATORS
 from tests.fixtures import make_fixture as mf
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
@@ -182,7 +187,7 @@ def test_written_files_are_reproducible(tmp_path: Path) -> None:
     result = translate_project(project)
     first = write_translation(project, result, tmp_path / "a")
     second = write_translation(project, result, tmp_path / "b")
-    expected = sorted(f"{t.recipe}.sql" for t in result.translated)
+    expected = sorted(sql_file_name(t, o) for t in result.translated for o in t.outputs)
     assert [p.name for p in first] == [*expected, "translate_report.json"]
     for a, b in zip(first, second, strict=True):
         assert a.read_bytes() == b.read_bytes()

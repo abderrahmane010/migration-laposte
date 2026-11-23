@@ -9,6 +9,7 @@ from dku2dbx.translate.model import Translation
 from dku2dbx.translate.visual.group import translate_grouping
 from dku2dbx.translate.visual.join import translate_join
 from dku2dbx.translate.visual.simple import translate_distinct, translate_sort, translate_vstack
+from dku2dbx.translate.visual.split import translate_split
 from dku2dbx.translate.visual.sync import translate_sampling, translate_sync
 from dku2dbx.translate.visual.window import translate_window
 
@@ -25,4 +26,5 @@ TRANSLATORS: dict[str, Translator] = {
     "join": translate_join,
     "grouping": translate_grouping,
     "window": translate_window,
+    "split": translate_split,
 }
