@@ -13,6 +13,11 @@ variables:
   admin_group:
     description: "Groupe qui administre le job"
     default: "[GROUPE_ADMIN]"
+{%- for v in variables %}
+  {{ v.name }}:
+    description: {{ v.description | tojson }}
+    default: {{ v.default | tojson }}
+{%- endfor %}
 
 permissions:
   - level: CAN_MANAGE

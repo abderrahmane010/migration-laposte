@@ -17,8 +17,11 @@ from typer.testing import CliRunner
 
 from dku2dbx.cli import NOT_IMPLEMENTED_EXIT_CODE, app
 from dku2dbx.generate.bundle import CELL, generate_job_bundle, write_bundle
+from dku2dbx.generate.scenarios import scenario_jobs
+from dku2dbx.simplify.flow import simplify_flow
+from tests.fixtures import make_fixture as mf
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
-from tests.test_translate_sync import fixture
+from tests.test_translate_sync import fixture, read_files
 
 SCHEMA_FILE = Path(__file__).parent / "schemas" / "databricks_bundle_schema_cli_1.24.0.json.gz"
 
@@ -49,7 +52,7 @@ def bundle_schema() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("key", ["DEMO_SIMPLE", "DEMO_COMPLEXE"])
-@pytest.mark.parametrize("name", ["databricks.yml", "resources/job.yml"])
+@pytest.mark.parametrize("name", ["databricks.yml", "resources/jobs.yml"])
 def test_bundle_files_match_the_official_schema(
     key: str, name: str, bundle_schema: dict[str, Any]
 ) -> None:
@@ -65,8 +68,9 @@ def test_bundle_files_match_the_official_schema(
 def test_bundle_layout_and_job() -> None:
     bundle = generate_job_bundle(fixture("DEMO_SIMPLE"))
     assert sorted(bundle.files) == [
+        "GENERATION.md",
         "databricks.yml",
-        "resources/job.yml",
+        "resources/jobs.yml",
         "src/00_prepare_schema.sql",
         "src/step_01.sql",
         "src/step_02.sql",
@@ -79,7 +83,7 @@ def test_bundle_layout_and_job() -> None:
         "schema": "[SCHEMA_DEV]",
     }
     assert config["permissions"] == [{"level": "CAN_MANAGE", "group_name": "${var.admin_group}"}]
-    job = yaml.safe_load(bundle.files["resources/job.yml"])["resources"]["jobs"][
+    job = yaml.safe_load(bundle.files["resources/jobs.yml"])["resources"]["jobs"][
         "dku2dbx_demo_simple_job"
     ]
     deps = {t["task_key"]: [d["task_key"] for d in t.get("depends_on", [])] for t in job["tasks"]}
@@ -144,7 +148,7 @@ _CREATE = re.compile(r"^CREATE OR REPLACE TABLE `([^`]+)` AS\n(.*);$", re.S)
 
 def run_job_locally(spark: Any, bundle_files: dict[str, str]) -> None:
     """Run the notebooks in job order; tables become temp views (no catalog locally)."""
-    job = yaml.safe_load(bundle_files["resources/job.yml"])["resources"]["jobs"]
+    job = yaml.safe_load(bundle_files["resources/jobs.yml"])["resources"]["jobs"]
     [definition] = job.values()
     done: set[str] = set()
     tasks = {t["task_key"]: t for t in definition["tasks"]}
@@ -209,3 +213,104 @@ def test_schema_still_rejects_errors(bundle_schema: dict[str, Any]) -> None:
     assert list(validator.iter_errors({"resources": {"jobs": {"j": {"taks": []}}}}))  # typo
     assert list(validator.iter_errors({"resources": {"jobs": {"j": {"tasks": [{"key": "t"}]}}}}))
     assert list(validator.iter_errors({"permissions": [{"level": 42}]}))
+
+
+# --------------------------------------------------------------------------- #
+# Scenarios, variables, checks
+# --------------------------------------------------------------------------- #
+def _jobs(key: str) -> dict[str, Any]:
+    files = generate_job_bundle(fixture(key)).files
+    jobs: dict[str, Any] = yaml.safe_load(files["resources/jobs.yml"])["resources"]["jobs"]
+    return jobs
+
+
+def test_scenario_becomes_a_scheduled_job_of_its_steps() -> None:
+    jobs = _jobs("DEMO_COMPLEXE")
+    job = jobs["dku2dbx_demo_complexe_scenario_daily_build"]
+    assert job["schedule"] == {
+        "quartz_cron_expression": "0 0 5 * * ?",
+        "timezone_id": "Europe/Paris",
+    }
+    assert "trigger" not in job  # the ds_modified trigger is inactive in Dataiku
+    flow = jobs["dku2dbx_demo_complexe_job"]
+    assert "schedule" not in flow  # the full flow job is not scheduled
+    scenario_tasks = {t["task_key"] for t in job["tasks"]}
+    all_tasks = {t["task_key"] for t in flow["tasks"]}
+    assert scenario_tasks < all_tasks  # only what the scenario builds, and upstream
+    for task in job["tasks"]:
+        assert {d["task_key"] for d in task.get("depends_on", [])} <= scenario_tasks
+
+
+def test_scenario_report_lists_what_is_not_translated() -> None:
+    report = generate_job_bundle(fixture("DEMO_COMPLEXE")).files["GENERATION.md"]
+    assert "déclencheur t_src (ds_modified) inactif dans Dataiku : non repris" in report
+    assert "partitions « PREVIOUS_DAY »" in report
+
+
+def test_python_scenario_and_unknown_steps_are_manual(tmp_path: Path) -> None:
+
+    p = mf.build_demo_simple()
+    p.scenarios = [
+        {"id": "PY", "type": "custom_python", "active": True, "params": {}},
+        {
+            "id": "MIX",
+            "type": "step_based",
+            "active": True,
+            "params": {"steps": [{"id": "s", "type": "run_scenario", "params": {}}]},
+        },
+    ]
+    project = read_files(tmp_path, p.files())
+    jobs = scenario_jobs(project, simplify_flow(project), "b")
+    assert [(j.scenario.id, j.not_translated) for j in jobs] == [
+        ("MIX", ["step s de type run_scenario"]),
+        ("PY", ["scénario de type custom_python (Python) : MANUAL"]),
+    ]
+    files = generate_job_bundle(project).files
+    assert set(yaml.safe_load(files["resources/jobs.yml"])["resources"]["jobs"]) == {
+        "dku2dbx_demo_simple_job"
+    }
+
+
+def test_variables_become_job_parameters() -> None:
+    bundle = generate_job_bundle(fixture("DEMO_SIMPLE"))
+    config = yaml.safe_load(bundle.files["databricks.yml"])
+    assert config["variables"]["dku_min_amount"]["default"] == "0"
+    job = _jobs("DEMO_SIMPLE")["dku2dbx_demo_simple_job"]
+    assert {"name": "dku_min_amount", "default": "${var.dku_min_amount}"} in job["parameters"]
+
+
+def test_formula_variable_reads_the_job_parameter(tmp_path: Path) -> None:
+
+    p = mf.build_demo_simple()
+    p.add_dataset(mf.dataset(p.key, "x", cols=mf.columns("order_id:bigint", "big:boolean")))
+    p.add_recipe(
+        mf.recipe(p.key, "flag", "shaker", [mf.ref("orders_raw")], [mf.out_ref("x")]),
+        mf.shaker(
+            [
+                mf.step(
+                    "CreateColumnWithGREL",
+                    {"column": "big", "expression": "amount > ${min_amount}"},
+                ),
+                mf.step(
+                    "ColumnsSelector",
+                    {"keep": True, "columns": ["order_id", "big"], "appliesTo": "COLUMNS"},
+                ),
+            ]
+        ),
+    )
+    files = generate_job_bundle(read_files(tmp_path, p.files())).files
+    notebook = next(t for path, t in files.items() if "`x`" in t and path.endswith(".sql"))
+    assert "CAST(:dku_min_amount AS BIGINT)" in notebook
+
+
+@pytest.mark.spark
+def test_record_count_check_runs_on_spark(spark: Any) -> None:
+    bundle = generate_job_bundle(fixture("DEMO_COMPLEXE"))
+    [step] = [g for g in bundle.steps if "daily_depot_kpis" in g.step.outputs]
+    cell = next(c for c in step.notebook.split(CELL) if "ASSERT_TRUE" in c)
+    sql = cell.split("\n", 1)[1].rstrip(";")
+    spark.createDataFrame([(1,)], "depot_id int").createOrReplaceTempView("daily_depot_kpis")
+    spark.sql(sql).collect()  # one row: >= 1, passes
+    spark.createDataFrame([], "depot_id int").createOrReplaceTempView("daily_depot_kpis")
+    with pytest.raises(Exception, match="chk_rows"):
+        spark.sql(sql).collect()

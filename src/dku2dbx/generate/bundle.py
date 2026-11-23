@@ -17,17 +17,20 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import sqlglot
 from sqlglot import exp
 
 from dku2dbx import __version__
 from dku2dbx.errors import Dku2dbxError, UnsupportedConstruct
+from dku2dbx.generate.scenarios import ScenarioJob, scenario_jobs
 from dku2dbx.generate.templating import render
 from dku2dbx.model.ir import Project
 from dku2dbx.simplify.flow import SimplifiedFlow, Step, simplify_flow
 from dku2dbx.translate.engine import payload_sha256, translate_project
 from dku2dbx.translate.model import ProjectTranslation, TranslatedOutput
+from dku2dbx.translate.prepare.formula import JobParameter
 from dku2dbx.translate.sql import DIALECT, table
 from dku2dbx.translate.visual.types import spark_type
 
@@ -46,6 +49,7 @@ class GeneratedStep:
     notebook: str
     translated: bool
     reasons: list[str] = field(default_factory=list)
+    unmapped_checks: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -54,6 +58,7 @@ class Bundle:
     files: dict[str, str]
     """Path in the bundle -> content."""
     steps: list[GeneratedStep]
+    scenarios: list[ScenarioJob] = field(default_factory=list)
 
 
 def _bundle_name(key: str) -> str:
@@ -80,6 +85,7 @@ class _StepBuilder:
             o.dataset: (t.recipe, o) for t in result.translated for o in t.outputs
         }
         self.flow = flow
+        self.unmapped_checks: list[str] = []
 
     def _reasons(self, step: Step) -> list[str]:
         reasons = []
@@ -167,11 +173,13 @@ class _StepBuilder:
         cells += ["USE CATALOG IDENTIFIER(:catalog);", "USE SCHEMA IDENTIFIER(:schema);"]
         if reasons:
             return self._stub(step, cells, reasons)
+        before = len(self.unmapped_checks)
         try:
             cells += self._writes(step)
         except UnsupportedConstruct as exc:  # e.g. a column type an append table needs
             return self._stub(step, cells, [f"{exc.recipe} : {exc.construct} — {exc.detail}"])
-        return GeneratedStep(step, CELL.join(cells) + "\n", True, [])
+        checks = self.unmapped_checks[before:]
+        return GeneratedStep(step, CELL.join(cells) + "\n", True, [], checks)
 
     def _writes(self, step: Step) -> list[str]:
         appends = {
@@ -181,6 +189,33 @@ class _StepBuilder:
         for dataset in step.outputs:
             query = self._query(dataset, set(step.inlined))
             cells += self._statement(dataset, query, dataset in appends)
+            cells += self._checks(dataset)
+        return cells
+
+    def _checks(self, dataset: str) -> list[str]:
+        """Dataset checks -> SQL assertions after the write (H-52)."""
+        cells = []
+        for check in self.project.dataset(dataset).checks:
+            label = f"check {check.get('id') or check.get('type')} of {dataset}"
+            if check.get("type") != "recordCountInRange":
+                self.unmapped_checks.append(f"{label} : type {check.get('type')} non traduit")
+                cells.append(_comment([f"NOT TRANSLATED: {label} ({check.get('type')})"]))
+                continue
+            count = exp.Count(this=exp.Star())
+            bounds: list[exp.Expr] = []
+            if check.get("minimum") is not None:
+                bounds.append(exp.GTE(this=count, expression=exp.Literal.number(check["minimum"])))
+            if check.get("maximum") is not None:
+                bounds.append(
+                    exp.LTE(this=count.copy(), expression=exp.Literal.number(check["maximum"]))
+                )
+            if not bounds:
+                continue
+            message = exp.Literal.string(f"dku2dbx: {label} failed (recordCountInRange)")
+            assertion = exp.select(exp.func("assert_true", exp.and_(*bounds), message)).from_(
+                table(dataset)
+            )
+            cells.append(_comment([label]) + "\n" + assertion.sql(dialect=DIALECT) + ";")
         return cells
 
     def _stub(self, step: Step, cells: list[str], reasons: list[str]) -> GeneratedStep:
@@ -204,9 +239,31 @@ def _depends_on(flow: SimplifiedFlow, project: Project) -> dict[str, list[str]]:
     return deps
 
 
+def _variables(project: Project) -> dict[str, JobParameter]:
+    """Project variables -> job parameters ``dku_<name>`` (scalars only)."""
+    params: dict[str, JobParameter] = {}
+    for name, value in sorted(project.variables.items()):
+        if isinstance(value, (bool, int, float, str)):
+            param = "dku_" + re.sub(r"[^A-Za-z0-9_]+", "_", name)
+            if param in {p.name for p in params.values()}:
+                raise GenerateError(f"variables {name!r} and another give the parameter {param}")
+            params[name] = JobParameter(param, value)
+    return params
+
+
+def _default(value: object) -> str:
+    """A job parameter default is text (booleans as true/false, like Dataiku)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 def generate_job_bundle(project: Project, *, fusion: bool = True) -> Bundle:
     """Target A: every file of the bundle, in memory (written by ``write_bundle``)."""
-    result = translate_project(project)
+    params = _variables(project)
+    # Formulas read the variables as job parameters (:dku_<name>), typed by their value.
+    as_parameters = project.model_copy(update={"variables": {**project.variables, **params}})
+    result = translate_project(as_parameters)
     flow = simplify_flow(project, fusion=fusion)
     builder = _StepBuilder(project, result, flow)
     steps = [builder.build(step) for step in flow.steps]
@@ -223,27 +280,71 @@ def generate_job_bundle(project: Project, *, fusion: bool = True) -> Bundle:
     for generated in steps:
         files[f"src/{generated.step.id}.sql"] = generated.notebook
     deps = _depends_on(flow, project)
-    tasks = [{"key": SCHEMA_TASK, "depends_on": [], "notebook": "../src/00_prepare_schema.sql"}]
-    tasks += [
-        {"key": g.step.id, "depends_on": deps[g.step.id], "notebook": f"../src/{g.step.id}.sql"}
-        for g in steps
-    ]
+
+    def tasks(step_ids: list[str]) -> list[dict[str, Any]]:
+        kept = set(step_ids)
+        result_tasks = [
+            {"key": SCHEMA_TASK, "depends_on": [], "notebook": "../src/00_prepare_schema.sql"}
+        ]
+        result_tasks += [
+            {
+                "key": sid,
+                "depends_on": [d for d in deps[sid] if d == SCHEMA_TASK or d in kept],
+                "notebook": f"../src/{sid}.sql",
+            }
+            for sid in step_ids
+        ]
+        return result_tasks
+
     name = _bundle_name(project.key)
-    files["databricks.yml"] = render("databricks.yml.j2", header=header, bundle_name=name)
-    files["resources/job.yml"] = render(
-        "job.yml.j2",
-        header=header,
-        job_key=f"{name}_job",
-        job_name=f"[dku2dbx] {project.key}",
-        description=f"Migration of the Dataiku project {project.key} (dku2dbx {__version__})",
-        tasks=tasks,
+    scenarios = scenario_jobs(project, flow, name)
+    jobs: list[dict[str, Any]] = [
+        {
+            "key": f"{name}_job",
+            "name": f"[dku2dbx] {project.key}",
+            "description": f"Full flow of the Dataiku project {project.key} "
+            f"(dku2dbx {__version__}), not scheduled",
+            "tasks": tasks([g.step.id for g in steps]),
+            "schedule": None,
+            "trigger": None,
+        }
+    ]
+    jobs += [
+        {
+            "key": job.key,
+            "name": f"[dku2dbx] {project.key} — {job.scenario.name or job.scenario.id}",
+            "description": f"Dataiku scenario {job.scenario.id} (dku2dbx {__version__})",
+            "tasks": tasks(job.steps),
+            "schedule": job.schedule,
+            "trigger": job.trigger,
+        }
+        for job in scenarios
+        if not job.manual
+    ]
+    parameters = [
+        {"name": "catalog", "default": "${var.catalog}"},
+        {"name": "schema", "default": "${var.schema}"},
+        *[{"name": p.name, "default": f"${{var.{p.name}}}"} for p in params.values()],
+    ]
+    variables = [
+        {"name": p.name, "description": f"Variable Dataiku ${{{v}}}", "default": _default(p.value)}
+        for v, p in params.items()
+    ]
+    files["databricks.yml"] = render(
+        "databricks.yml.j2", header=header, bundle_name=name, variables=variables
     )
-    return Bundle(project=project.key, files=files, steps=steps)
+    files["resources/jobs.yml"] = render(
+        "job.yml.j2", header=header, jobs=jobs, parameters=parameters
+    )
+    bundle = Bundle(project=project.key, files=files, steps=steps, scenarios=scenarios)
+    files["GENERATION.md"] = generation_report(project, bundle, params)
+    return bundle
 
 
 def write_bundle(bundle: Bundle, out: Path) -> list[Path]:
     """Write the bundle under ``out`` (stale generated files are removed first)."""
-    for stale in sorted(out.glob("src/*.sql")) + sorted(out.glob("resources/*.yml")):
+    stale_files = [*sorted(out.glob("src/*.sql")), *sorted(out.glob("resources/*.yml"))]
+    for stale in stale_files:
         stale.unlink()
     written = []
     for rel, text in sorted(bundle.files.items()):
@@ -252,3 +353,57 @@ def write_bundle(bundle: Bundle, out: Path) -> list[Path]:
         path.write_bytes(text.encode("utf-8"))
         written.append(path)
     return written
+
+
+def generation_report(project: Project, bundle: Bundle, params: dict[str, JobParameter]) -> str:
+    """GENERATION.md: what the bundle does, and everything left to a human."""
+    manual_steps = [g for g in bundle.steps if not g.translated]
+    lines = [
+        f"# Bundle dku2dbx — {project.key}",
+        "",
+        f"Généré par dku2dbx {__version__}. Cible A : job de notebooks SQL.",
+        "",
+        "## Synthèse",
+        "",
+        f"- Étapes : {len(bundle.steps)}, dont **{len(manual_steps)} à migrer à la main** "
+        "(notebook qui échoue explicitement)",
+        f"- Jobs : 1 flux complet (sans planification) + "
+        f"{sum(not j.manual for j in bundle.scenarios)} scénario(s)",
+        f"- Paramètres issus des variables Dataiku : {len(params)}",
+        "",
+        "Avant de déployer : renseigner `catalog`, `schema` et `admin_group` dans "
+        "`databricks.yml` (valeurs fictives entre crochets).",
+        "",
+        "## Étapes à migrer à la main",
+        "",
+    ]
+    lines += [f"- {g.step.id} : {'; '.join(g.reasons)}" for g in manual_steps] or ["(aucune)"]
+    lines += ["", "## Scénarios", ""]
+    for job in bundle.scenarios:
+        status = (
+            "MANUAL"
+            if job.manual
+            else (
+                f"job `{job.key}`, {len(job.steps)} étape(s)"
+                + (
+                    f", planifié `{job.schedule['quartz_cron_expression']}` "
+                    f"({job.schedule['timezone_id']})"
+                    if job.schedule
+                    else ""
+                )
+                + (", déclenché par une table" if job.trigger else "")
+            )
+        )
+        lines.append(f"- {job.scenario.id} : {status}")
+        lines += [f"  - non traduit : {r}" for r in job.not_translated]
+        lines += [f"  - {w}" for w in job.warnings]
+    if not bundle.scenarios:
+        lines.append("(aucun)")
+    lines += ["", "## Variables → paramètres de job", ""]
+    lines += [
+        f"- `${{{v}}}` → `:{p.name}` (défaut {_default(p.value)!r})" for v, p in params.items()
+    ] or ["(aucune)"]
+    unmapped = [c for g in bundle.steps for c in g.unmapped_checks]
+    lines += ["", "## Checks non traduits", ""]
+    lines += [f"- {c}" for c in unmapped] or ["(aucun)"]
+    return "\n".join(lines) + "\n"

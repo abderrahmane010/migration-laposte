@@ -288,8 +288,12 @@ Phase 5 validée par le responsable le 2026-11-23. Décision : une table **const
 - Fixture : le type `timestamp` (inventé) remplacé par le type Dataiku `date`.
 - Bug trouvé en cours de route : `sqlglot` range la clause `WITH` sous la clé `with_` ; les CTE disparaissaient en silence, l'exécution de bout en bout l'aurait détecté.
 
+- **Scénarios** (H-51) : un job par scénario step-based, avec les seules étapes qu'il construit et leur amont, planifié (`schedule`, fuseau Dataiku) ou déclenché par une table ; le flux complet reste un job non planifié. Scénarios Python et steps inconnues : MANUAL, listés.
+- **Variables** : chaque variable scalaire devient une variable du bundle et un paramètre de job `dku_<nom>` ; une formule qui l'utilise lit `:dku_<nom>`, typé par un `CAST` (la valeur Dataiku est le défaut, modifiable sans régénérer).
+- **Checks** (H-52) : `recordCountInRange` → `assert_true` après l'écriture ; les autres types sont listés.
+- **`GENERATION.md`** dans le bundle : étapes à migrer à la main, scénarios (planification, éléments non traduits), variables, checks non traduits.
+
 ### Reste à faire
 
-- Scénarios → `schedule` et triggers ; variables de projet → paramètres ; checks → contrôles SQL.
 - Partitions : colonne de date et `INSERT INTO … REPLACE WHERE`, paramètre de date du job (UTC / Paris).
 - Cible B : Lakeflow pipeline.

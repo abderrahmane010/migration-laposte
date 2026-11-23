@@ -92,6 +92,18 @@ class Typed:
 
 
 @dataclass(frozen=True)
+class JobParameter:
+    """A project variable read as a job parameter (``:name``) instead of its value.
+
+    Set by the bundle generator (phase 6) in the project variables; the value is
+    the default of the parameter and gives its type.
+    """
+
+    name: str
+    value: Any
+
+
+@dataclass(frozen=True)
 class Context:
     recipe: str
     columns: Mapping[str, str | None]
@@ -308,12 +320,28 @@ class _Translator(Transformer[Token, Typed]):
         if name not in self.ctx.variables:
             raise _unsupported(self.ctx, f"variable '${{{name}}}' cannot be resolved")
         value = self.ctx.variables[name]
+        if isinstance(value, JobParameter):
+            return self._parameter(name, value)
         if isinstance(value, bool):
             return Typed(exp.true() if value else exp.false(), BOOLEAN)
         if isinstance(value, (int, float)):
             return Typed(exp.Literal.number(value), NUMBER)
         if isinstance(value, str):
             return Typed(exp.Literal.string(value), STRING)
+        raise _unsupported(self.ctx, f"variable '${{{name}}}' is not a scalar")
+
+    def _parameter(self, name: str, param: JobParameter) -> Typed:
+        # Job parameters arrive as text: an explicit CAST gives the variable its type.
+        marker = exp.Placeholder(this=param.name)
+        value = param.value
+        if isinstance(value, bool):
+            return Typed(exp.Cast(this=marker, to=exp.DataType.build("BOOLEAN")), BOOLEAN)
+        if isinstance(value, int):
+            return Typed(exp.Cast(this=marker, to=exp.DataType.build("BIGINT")), NUMBER)
+        if isinstance(value, float):
+            return Typed(exp.Cast(this=marker, to=exp.DataType.build("DOUBLE")), NUMBER)
+        if isinstance(value, str):
+            return Typed(marker, STRING)
         raise _unsupported(self.ctx, f"variable '${{{name}}}' is not a scalar")
 
     # -- calls ------------------------------------------------------------- #

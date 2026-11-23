@@ -1,17 +1,32 @@
 # {{ header }}
 resources:
   jobs:
-    {{ job_key }}:
-      name: {{ job_name | tojson }}
-      description: {{ description | tojson }}
+{%- for job in jobs %}
+    {{ job.key }}:
+      name: {{ job.name | tojson }}
+      description: {{ job.description | tojson }}
       max_concurrent_runs: 1
+{%- if job.schedule %}
+      schedule:
+{%- for k, v in job.schedule.items() %}
+        {{ k }}: {{ v | tojson }}
+{%- endfor %}
+{%- endif %}
+{%- if job.trigger %}
+      trigger:
+        table_update:
+          table_names:
+{%- for t in job.trigger.table_update.table_names %}
+            - {{ t | tojson }}
+{%- endfor %}
+{%- endif %}
       parameters:
-        - name: catalog
-          default: ${var.catalog}
-        - name: schema
-          default: ${var.schema}
+{%- for p in parameters %}
+        - name: {{ p.name | tojson }}
+          default: {{ p.default | tojson }}
+{%- endfor %}
       tasks:
-{%- for task in tasks %}
+{%- for task in job.tasks %}
         - task_key: {{ task.key | tojson }}
 {%- if task.depends_on %}
           depends_on:
@@ -21,4 +36,5 @@ resources:
 {%- endif %}
           notebook_task:
             notebook_path: {{ task.notebook | tojson }}
+{%- endfor %}
 {%- endfor %}
