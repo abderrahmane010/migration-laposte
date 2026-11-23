@@ -62,22 +62,6 @@ def partition_warnings(recipe: Recipe) -> list[str]:
     ]
 
 
-def require_no_filter(recipe: Recipe, flt: Any, where: str) -> None:
-    """Accept a disabled filter only.
-
-    ASSUMPTION (H-09h): {enabled, distinct, uiData}. The operator vocabulary of
-    an enabled filter is not known yet: never guess it.
-    """
-    if flt is None:
-        return
-    if not isinstance(flt, dict):
-        raise UnsupportedConstruct(recipe.name, where, "filter is not a JSON object")
-    if flt.get("enabled"):
-        raise UnsupportedConstruct(
-            recipe.name, where, "enabled filter (operator vocabulary not mapped yet)"
-        )
-
-
 def columns_with_types(
     project: Project, dataset: str, recipe: Recipe
 ) -> list[tuple[str, str | None]]:

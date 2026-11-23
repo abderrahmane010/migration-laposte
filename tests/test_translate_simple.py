@@ -89,7 +89,11 @@ def test_distinct_on_all_columns_runs_on_spark(tmp_path: Path, spark: Any) -> No
         (_distinct(["status"]), "status:string,amount:double", "output schema"),
         (_distinct(["ghost"]), "ghost:string", "keys"),
         (_distinct(["status"], count=True), "status:string", "globalCount"),
-        ({**_distinct(["status"]), "preFilter": {"enabled": True}}, "status:string", "preFilter"),
+        (
+            {**_distinct(["status"]), "preFilter": {"enabled": True}},
+            "status:string",
+            "preFilter.mode",
+        ),
         (
             {**_distinct(["status"]), "outputColumnNameOverrides": {"status": "s"}},
             "status:string",
@@ -132,7 +136,7 @@ def _stack(**overrides: Any) -> dict[str, Any]:
     ("payload", "element"),
     [
         (_stack(mode="INTERSECT"), "mode"),
-        (_stack(postFilter={"enabled": True}), "postFilter"),
+        (_stack(postFilter={"enabled": True}), "postFilter.mode"),
         (_stack(selectedColumns=[]), "selectedColumns"),
         (
             _stack(
@@ -141,7 +145,7 @@ def _stack(**overrides: Any) -> dict[str, Any]:
                     {"index": 1, "preFilter": mf.no_filter()},
                 ]
             ),
-            "virtualInputs[0].preFilter",
+            "virtualInputs[0].preFilter.mode",
         ),
     ],
 )
@@ -178,10 +182,40 @@ def test_sort_runs_on_spark_and_warns(tmp_path: Path, spark: Any) -> None:
 @pytest.mark.parametrize(
     ("payload", "element"),
     [
-        ({"orders": [{"column": "status"}], "rowNumber": True}, "rowNumber"),
+        ({"orders": [{"column": "status"}], "rowNumber": True}, "output schema"),
+        ({"orders": [{"column": "status"}], "rowNumber": True, "rank": True}, "rowNumber+rank"),
         ({"orders": []}, "orders"),
-        ({"orders": [{"column": "status"}], "preFilter": {"enabled": True}}, "preFilter"),
+        ({"orders": [{"column": "status"}], "preFilter": {"enabled": True}}, "preFilter.mode"),
     ],
 )
 def test_sort_never_guesses(tmp_path: Path, payload: Any, element: str) -> None:
     assert _result(_with(tmp_path, "sort", payload, "status:string"), "r").element == element
+
+
+@pytest.mark.spark
+def test_sort_row_number_runs_on_spark(tmp_path: Path, spark: Any) -> None:
+    payload = {"orders": [{"column": "amount", "desc": True}], "rowNumber": True}
+    tr = _result(_with(tmp_path, "sort", payload, "amount:double,row_number:bigint"), "r")
+    assert "ROW_NUMBER() OVER (ORDER BY `amount` DESC" in tr.outputs[0].sql
+    _orders(spark, [(1, 1, None, 1.0, "A"), (2, 1, None, 3.0, "A"), (3, 1, None, 2.0, "A")])
+    got = [tuple(r) for r in spark.sql(tr.outputs[0].sql).collect()]
+    assert got == [(3.0, 1), (2.0, 2), (1.0, 3)]
+
+
+@pytest.mark.spark
+def test_stack_post_filter_runs_on_spark(tmp_path: Path, spark: Any) -> None:
+    flt = {
+        "enabled": True,
+        "distinct": False,
+        "uiData": {
+            "mode": "&&",
+            "conditions": [{"input": "customer_id", "operator": ">  [number]", "num": 1}],
+        },
+    }
+    project = _with(tmp_path, "vstack", _stack(postFilter=flt), "customer_id:bigint", n_inputs=2)
+    tr = _result(project, "r")
+    _orders(spark, [(1, 1, None, 1.0, "A"), (2, 2, None, 1.0, "A")])
+    spark.createDataFrame(
+        [(3, "x", "y")], "customer_id long, name string, segment string"
+    ).createOrReplaceTempView("customers")
+    assert sorted(r[0] for r in spark.sql(tr.outputs[0].sql).collect()) == [2, 3]

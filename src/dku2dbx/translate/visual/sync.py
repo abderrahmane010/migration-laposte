@@ -12,11 +12,11 @@ from dku2dbx.translate.model import TranslatedOutput, Translation
 from dku2dbx.translate.sql import column, render, table
 from dku2dbx.translate.visual.common import (
     partition_warnings,
-    require_no_filter,
     schema,
     single_input,
     single_output,
 )
+from dku2dbx.translate.visual.filters import where_clause
 
 # ASSUMPTION (H-30): sync copies the input columns that the output schema keeps,
 # in the output order; STRICT_SYNC (seen on a real project) is the only mode mapped.
@@ -55,9 +55,7 @@ def translate_sampling(project: Project, recipe: Recipe) -> Translation:
     source, target = single_input(recipe), single_output(recipe)
     # ASSUMPTION (H-31): the payload is the filter; params.selection holds samplingMethod,
     # maxRecords, partitionSelectionMethod, ordering and its own filter.
-    require_no_filter(recipe, recipe.payload, "filter")
     selection: dict[str, Any] = recipe.params.get("selection") or {}
-    require_no_filter(recipe, selection.get("filter"), "selection.filter")
     if (selection.get("ordering") or {}).get("enabled"):
         raise UnsupportedConstruct(recipe.name, "selection.ordering", "ordered sampling")
     if selection.get("partitionSelectionMethod", "ALL") != "ALL":
@@ -65,6 +63,9 @@ def translate_sampling(project: Project, recipe: Recipe) -> Translation:
             recipe.name, "partitionSelectionMethod", str(selection["partitionSelectionMethod"])
         )
     query = _projection(project, recipe, source.ref, target.ref)
+    columns = schema(project, source.ref, recipe)
+    query = where_clause(query, recipe, recipe.payload, "filter", columns)
+    query = where_clause(query, recipe, selection.get("filter"), "selection.filter", columns)
     warnings = partition_warnings(recipe)
     method = selection.get("samplingMethod")
     if method == "HEAD_SEQUENTIAL":

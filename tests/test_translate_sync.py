@@ -133,8 +133,8 @@ def test_head_sampling_runs_on_spark(tmp_path: Path, spark: Any) -> None:
 @pytest.mark.parametrize(
     ("payload", "selection", "element"),
     [
-        (mf.formula_filter("amount > 0"), SELECTION, "filter"),
-        (mf.no_filter(), {**SELECTION, "filter": {"enabled": True}}, "selection.filter"),
+        (mf.formula_filter("amount > 0"), SELECTION, "filter.mode"),
+        (mf.no_filter(), {**SELECTION, "filter": {"enabled": True}}, "selection.filter.mode"),
         (mf.no_filter(), {**SELECTION, "samplingMethod": "RANDOM_FIXED_NB"}, "samplingMethod"),
         (mf.no_filter(), {**SELECTION, "ordering": {"enabled": True}}, "selection.ordering"),
         (

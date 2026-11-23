@@ -15,12 +15,11 @@ from dku2dbx.translate.visual.common import (
     partition_warnings,
     payload_dict,
     require_empty,
-    require_false,
-    require_no_filter,
     schema,
     single_input,
     single_output,
 )
+from dku2dbx.translate.visual.filters import post_filter, where_clause
 from dku2dbx.translate.visual.types import spark_type
 
 
@@ -43,8 +42,6 @@ def translate_distinct(project: Project, recipe: Recipe) -> Translation:
     """
     payload = payload_dict(recipe)
     source, target = single_input(recipe), single_output(recipe)
-    require_no_filter(recipe, payload.get("preFilter"), "preFilter")
-    require_no_filter(recipe, payload.get("postFilter"), "postFilter")
     require_empty(recipe, payload, "outputColumnNameOverrides", "computedColumns")
     keys = [str(k.get("column")) for k in payload.get("keys") or []]
     available = schema(project, source.ref, recipe)
@@ -71,8 +68,10 @@ def translate_distinct(project: Project, recipe: Recipe) -> Translation:
     else:
         query = exp.select(*[column(k) for k in keys]).distinct().from_(table(source.ref))
         produced = keys
+    query = where_clause(query, recipe, payload.get("preFilter"), "preFilter", available)
     check_output(recipe, produced, declared, target.ref)
-    return _translation(recipe, target.ref, target.append_mode, query, [])
+    final = post_filter(query, recipe, payload.get("postFilter"), declared)
+    return _translation(recipe, target.ref, target.append_mode, final, [])
 
 
 def translate_vstack(project: Project, recipe: Recipe) -> Translation:
@@ -86,7 +85,6 @@ def translate_vstack(project: Project, recipe: Recipe) -> Translation:
     inputs = main_inputs(recipe)
     if payload.get("mode") != "UNION":
         raise UnsupportedConstruct(recipe.name, "mode", f"'{payload.get('mode')}' is not mapped")
-    require_no_filter(recipe, payload.get("postFilter"), "postFilter")
     selected = [str(c) for c in payload.get("selectedColumns") or []]
     if not selected:
         raise UnsupportedConstruct(recipe.name, "selectedColumns", "no column selected")
@@ -98,7 +96,6 @@ def translate_vstack(project: Project, recipe: Recipe) -> Translation:
 
     selects: list[exp.Select] = []
     for vin, inp in zip(virtual, inputs, strict=True):
-        require_no_filter(recipe, vin.get("preFilter"), f"virtualInputs[{vin['index']}].preFilter")
         available = set(schema(project, inp.ref, recipe))
         projection: list[exp.Expr] = []
         for name in selected:
@@ -112,42 +109,64 @@ def translate_vstack(project: Project, recipe: Recipe) -> Translation:
         if origin:
             label = str(vin.get("originLabel", inp.ref))
             projection.append(exp.alias_(exp.Literal.string(label), origin, quoted=True))
-        selects.append(exp.select(*projection).from_(table(inp.ref)))
+        one = exp.select(*projection).from_(table(inp.ref))
+        where = f"virtualInputs[{vin['index']}].preFilter"
+        selects.append(where_clause(one, recipe, vin.get("preFilter"), where, available))
     query: exp.Expr = selects[0]
     for nxt in selects[1:]:
         query = exp.union(query, nxt, distinct=False)
-    check_output(recipe, [*selected, *([origin] if origin else [])], list(out_types), target.ref)
-    return _translation(recipe, target.ref, target.append_mode, query, [])
+    produced = [*selected, *([origin] if origin else [])]
+    check_output(recipe, produced, list(out_types), target.ref)
+    final = post_filter(query, recipe, payload.get("postFilter"), produced)
+    return _translation(recipe, target.ref, target.append_mode, final, [])
+
+
+# Sort numbering options -> Spark window functions.
+NUMBERINGS = {"rowNumber": exp.RowNumber, "rank": exp.Rank, "denseRank": exp.DenseRank}
 
 
 def translate_sort(project: Project, recipe: Recipe) -> Translation:
-    """Sort: ORDER BY the payload orders (ASSUMPTION H-34: orders[].{column, desc})."""
+    """Sort: ORDER BY the payload orders (ASSUMPTION H-34: orders[].{column, desc}).
+
+    ASSUMPTION (H-36): a numbering option (rowNumber, rank, denseRank) adds one output
+    column, numbered in the sort order; its name is the one output column absent from
+    the input. Several options at once are not mapped (their column order is unknown).
+    """
     payload = payload_dict(recipe)
     source, target = single_input(recipe), single_output(recipe)
-    require_no_filter(recipe, payload.get("preFilter"), "preFilter")
     require_empty(recipe, payload, "outputColumnNameOverrides", "computedColumns")
-    require_false(recipe, payload, "rank", "rowNumber", "denseRank")
     declared = schema(project, target.ref, recipe)
-    available = set(schema(project, source.ref, recipe))
-    if not set(declared) <= available:
-        raise UnsupportedConstruct(recipe.name, "output schema", "columns absent from the input")
+    available = schema(project, source.ref, recipe)
     orders = payload.get("orders") or []
     if not orders:
         raise UnsupportedConstruct(recipe.name, "orders", "no sort column")
-    query = (
-        exp.select(*[column(c) for c in declared])
-        .from_(table(source.ref))
-        .order_by(
-            # ASSUMPTION (H-34): NULLs sort last in both directions (made explicit: Spark's
-            # default puts them first in ascending order). To verify against Dataiku.
-            *[
-                exp.Ordered(
-                    this=column(str(o["column"])), desc=bool(o.get("desc")), nulls_first=False
-                )
-                for o in orders
-            ]
+    # ASSUMPTION (H-34): NULLs sort last in both directions (made explicit: Spark's
+    # default puts them first in ascending order). To verify against Dataiku.
+    ordering = [
+        exp.Ordered(this=column(str(o["column"])), desc=bool(o.get("desc")), nulls_first=False)
+        for o in orders
+    ]
+    numberings = [k for k in NUMBERINGS if payload.get(k)]
+    extra = [c for c in declared if c not in available]
+    if len(numberings) > 1:
+        raise UnsupportedConstruct(recipe.name, "+".join(numberings), "several numberings")
+    if len(extra) != len(numberings):
+        raise UnsupportedConstruct(
+            recipe.name, "output schema", f"columns absent from the input: {extra}"
         )
-    )
+    projection: list[exp.Expr] = []
+    for name in declared:
+        if name in extra:
+            window = exp.Window(
+                this=NUMBERINGS[numberings[0]](),
+                order=exp.Order(expressions=[o.copy() for o in ordering]),
+            )
+            projection.append(exp.alias_(window, name, quoted=True))
+        else:
+            projection.append(column(name))
+    query = exp.select(*projection).from_(table(source.ref))
+    query = where_clause(query, recipe, payload.get("preFilter"), "preFilter", available)
+    query = query.order_by(*ordering)
     warning = (
         "l'ordre des lignes n'est pas conservé par une table Delta : il ne vaut que pour "
         "la lecture de ce SELECT"
