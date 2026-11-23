@@ -19,6 +19,7 @@ from dku2dbx.analyze.scoring import ScoringConfig, effort, load_scoring, score
 from dku2dbx.errors import ScoringConfigError
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import read_export
+from dku2dbx.translate.visual import TRANSLATORS
 from tests.fixtures import make_fixture as mf
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 
@@ -81,7 +82,8 @@ def test_demo_simple_figures() -> None:
         "stack_orders": 3,
         "window_orders": 3,
     }
-    assert not any(r.translator_available for r in a.recipes)
+    # follows the translator registry (phase 3 fills it)
+    assert all(r.translator_available == (r.type in TRANSLATORS) for r in a.recipes)
     # FillEmptyWithValue, CreateColumnWithGREL, FilterOnValue; ColumnRenamer is disabled
     assert a.processors == {"CreateColumnWithGREL": 1, "FillEmptyWithValue": 1, "FilterOnValue": 1}
     assert a.disabled_steps == ["prepare_orders: ColumnRenamer"]

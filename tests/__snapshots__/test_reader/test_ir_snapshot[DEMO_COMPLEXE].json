@@ -3,7 +3,7 @@
     "generator": "dku2dbx",
     "generator_version": "0.0.1",
     "source_file": "DEMO_COMPLEXE.zip",
-    "source_sha256": "eaa4314a362120629f88423fb21377dc1a70675d984af2ff28ffcefad371446c"
+    "source_sha256": "bd48396686139889834dcce6eda277c5207c4f99c4bbf97115c829c955049a35"
   },
   "project": {
     "datasets": [
@@ -1964,11 +1964,7 @@
         },
         "payload": {
           "globalCount": false,
-          "keys": [
-            {
-              "column": "depot_id"
-            }
-          ],
+          "keys": [],
           "outputColumnNameOverrides": {},
           "postFilter": {
             "distinct": false,

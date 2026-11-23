@@ -25,7 +25,7 @@ def table(name: str, alias: str | None = None) -> exp.Table:
     return ref
 
 
-def render(query: exp.Expression) -> str:
+def render(query: exp.Expr) -> str:
     """Pretty Databricks SQL, checked by parsing it back."""
     sql = query.sql(dialect=DIALECT, pretty=True)
     sqlglot.parse_one(sql, read=DIALECT)  # raises if sqlglot cannot read its own output

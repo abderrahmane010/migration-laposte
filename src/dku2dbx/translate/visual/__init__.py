@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from dku2dbx.model.ir import Project, Recipe
 from dku2dbx.translate.model import Translation
+from dku2dbx.translate.visual.simple import translate_distinct, translate_sort, translate_vstack
 from dku2dbx.translate.visual.sync import translate_sampling, translate_sync
 
 Translator = Callable[[Project, Recipe], Translation]
@@ -15,4 +16,7 @@ Translator = Callable[[Project, Recipe], Translation]
 TRANSLATORS: dict[str, Translator] = {
     "sync": translate_sync,
     "sampling": translate_sampling,
+    "distinct": translate_distinct,
+    "vstack": translate_vstack,
+    "sort": translate_sort,
 }

@@ -94,7 +94,7 @@ Source : `DEMO_SIMPLE.zip`
 | group_by_customer | grouping | 3 | non | — |
 | join_orders_customers | join | 3 | non | — |
 | prepare_orders | shaker | 4 | non | — |
-| stack_orders | vstack | 3 | non | — |
+| stack_orders | vstack | 3 | oui | — |
 | window_orders | window | 3 | non | — |
 
 ### LLM_REVIEW : résidu traité par le LLM, relu

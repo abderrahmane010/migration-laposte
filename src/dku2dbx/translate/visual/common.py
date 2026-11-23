@@ -76,3 +76,33 @@ def require_no_filter(recipe: Recipe, flt: Any, where: str) -> None:
         raise UnsupportedConstruct(
             recipe.name, where, "enabled filter (operator vocabulary not mapped yet)"
         )
+
+
+def columns_with_types(
+    project: Project, dataset: str, recipe: Recipe
+) -> list[tuple[str, str | None]]:
+    schema(project, dataset, recipe)  # raises if unknown or empty
+    return [(c.name, c.type) for c in project.dataset(dataset).columns]
+
+
+def require_empty(recipe: Recipe, payload: dict[str, Any], *keys: str) -> None:
+    """Options that change the result must be absent or empty until they are mapped."""
+    for key in keys:
+        if payload.get(key):
+            raise UnsupportedConstruct(recipe.name, key, "option not mapped yet")
+
+
+def require_false(recipe: Recipe, payload: dict[str, Any], *keys: str) -> None:
+    for key in keys:
+        if payload.get(key):
+            raise UnsupportedConstruct(recipe.name, key, "option not mapped yet")
+
+
+def check_output(recipe: Recipe, produced: list[str], declared: list[str], target: str) -> None:
+    """The SQL must produce exactly the declared output schema, in order."""
+    if produced != declared:
+        raise UnsupportedConstruct(
+            recipe.name,
+            "output schema",
+            f"'{target}' declares {declared}, the translation produces {produced}",
+        )

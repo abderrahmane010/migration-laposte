@@ -911,8 +911,9 @@ def build_demo_complexe() -> Project:
         "distinct",
         [ref("depots")],
         [out_ref("depots_unique")],
+        # Distinct on all columns (no key): the output keeps every column.
         {
-            "keys": [{"column": "depot_id"}],
+            "keys": [],
             "globalCount": False,
             "outputColumnNameOverrides": {},
             "preFilter": no_filter(),

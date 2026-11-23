@@ -16,6 +16,7 @@ from dku2dbx.cli import app
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import read_export
 from dku2dbx.translate.engine import header, translate_project, write_translation
+from dku2dbx.translate.visual import TRANSLATORS
 from tests.fixtures import make_fixture as mf
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 
@@ -181,20 +182,27 @@ def test_written_files_are_reproducible(tmp_path: Path) -> None:
     result = translate_project(project)
     first = write_translation(project, result, tmp_path / "a")
     second = write_translation(project, result, tmp_path / "b")
-    assert [p.name for p in first] == ["sync_events.sql", "translate_report.json"]
+    expected = sorted(f"{t.recipe}.sql" for t in result.translated)
+    assert [p.name for p in first] == [*expected, "translate_report.json"]
     for a, b in zip(first, second, strict=True):
         assert a.read_bytes() == b.read_bytes()
-    assert first[0].read_text().endswith("FROM `parcels_events`;\n")
+    sync = tmp_path / "a" / "DEMO_COMPLEXE" / "sql" / "sync_events.sql"
+    assert sync.read_text().endswith("FROM `parcels_events`;\n")
 
 
 def test_cli_translate(tmp_path: Path) -> None:
     export = str(DEFAULT_OUT_DIR / "DEMO_COMPLEXE.zip")
     result = CliRunner().invoke(app, ["translate", export, "--out", str(tmp_path)])
     assert result.exit_code == 0, result.output
-    assert "1 recette(s) traduite(s), 0 non prise(s) en charge, 19 sans traducteur" in result.output
+    covered = sum(r.type in TRANSLATORS for r in fixture("DEMO_COMPLEXE").recipes)
+    assert f"{covered} recette(s) traduite(s), 0 non prise(s) en charge" in result.output
     assert (tmp_path / "DEMO_COMPLEXE" / "sql" / "sync_events.sql").is_file()
 
 
 def test_classification_sees_the_new_translators() -> None:
-    available = {c.name for c in classify(fixture("DEMO_COMPLEXE")) if c.translator_available}
-    assert available == {"sync_events"}
+    project = fixture("DEMO_COMPLEXE")
+    available = {c.name for c in classify(project) if c.translator_available}
+    assert "sync_events" in available
+    assert available == {
+        r.name for r in project.recipes if r.type in TRANSLATORS and r.name != "prepare_depots"
+    }
