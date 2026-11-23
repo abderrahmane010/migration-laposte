@@ -1,1 +1,1 @@
-"""Package `simplify` — vide en phase 0."""
+"""Simplifier (phase 5): merge recipe chains into steps."""

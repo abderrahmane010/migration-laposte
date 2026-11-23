@@ -13,6 +13,7 @@ uv run pre-commit install                       # installe les hooks Git
 uv run dku2dbx --help                           # CLI
 uv run dku2dbx analyze exports/ --out out/      # analyse : inventaire, classement, score, vagues
 uv run dku2dbx analyze export.zip --dump-ir     # un seul projet, avec en plus out/<projet>/ir.json
+uv run dku2dbx simplify export.zip              # étapes après fusion -> out/<projet>/simplify.md
 uv run dku2dbx translate export.zip             # recettes visuelles -> out/<projet>/sql/*.sql
 uv run python tests/fixtures/make_fixture.py    # régénère les exports synthétiques
 uv run pytest                                   # tests
@@ -33,6 +34,10 @@ Les exports réels vont dans `exports/` et les artefacts générés dans `out/`.
 | `catalogue_processeurs.md`, `.csv` | processeurs Prepare du plus fréquent au moins fréquent (ordre de la phase 4) |
 
 La classe d'une recette est sa **classe cible** prévue par la ROADMAP ; la colonne « traducteur disponible » dit si le traducteur existe déjà. Seuils et jours d'effort sont dans `config/scoring.yaml`, **à calibrer sur le pilote** (`--scoring` pour une autre grille). Un projet lu via l'API par le pont `dku2dbx_bridge` s'analyse de la même façon : `dku2dbx analyze out/<projet>/virtual_export.zip`.
+
+## Simplifier (phase 5)
+
+`dku2dbx simplify <export.zip> [--no-fusion]` fusionne les chaînes de recettes en étapes : une table intermédiaire lue par une seule recette devient une CTE de l'étape qui la consomme. Une table reste matérialisée si c'est une sortie finale ou exposée, si plusieurs recettes la lisent, si elle est partitionnée, en append, porte des checks ou sert à un scénario, ou si elle touche une recette `LLM_REVIEW`, `MANUAL` ou non traduisible. `simplify.md` donne les étapes, les tables supprimées et la raison de chaque table conservée ; `--no-fusion` garde une étape par recette.
 
 ## Traduire (phase 3)
 

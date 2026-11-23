@@ -21,6 +21,8 @@ from dku2dbx.analyze.scoring import load_scoring
 from dku2dbx.errors import ExportReadError, ScoringConfigError
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import ZipExportReader
+from dku2dbx.simplify.flow import SimplifyError, simplify_flow
+from dku2dbx.simplify.report import write_report
 from dku2dbx.translate.engine import translate_project, write_translation
 
 app = typer.Typer(
@@ -145,9 +147,29 @@ def _print_project(project: Project, analysis: ProjectAnalysis) -> None:
 
 
 @app.command()
-def simplify() -> None:
+def simplify(
+    export: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    ),
+    out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
+    no_fusion: bool = typer.Option(
+        False, "--no-fusion", help="Une étape par recette (réconciliation fine, débogage)."
+    ),
+) -> None:
     """Simplifier : fusionner les chaînes de recettes en étapes (phase 5)."""
-    _not_implemented("simplify", 5)
+    try:
+        project = ZipExportReader(export).read()
+        flow = simplify_flow(project, fusion=not no_fusion)
+    except (ExportReadError, SimplifyError) as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    write_report(flow, out)
+    typer.echo(
+        f"Projet {project.key} : {flow.recipes_before} recettes -> {len(flow.steps)} étape(s), "
+        f"{len(flow.removed)} table(s) intermédiaire(s) supprimée(s), "
+        f"{len(flow.kept)} conservée(s)."
+    )
+    typer.echo(f"Rapport dans {out / project.key / 'simplify.md'}")
 
 
 @app.command()

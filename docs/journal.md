@@ -238,3 +238,28 @@ Phase 3 validée par le responsable le 2026-11-23, après traduction du projet r
 - Formules : `if`, `!=`, `*`, nombres et texte, tous traduits.
 - `dku2dbx translate` : **18 recettes traduites** (14 visuelles, 4 Prepare sur 4), 4 refusées (les mêmes qu'en phase 3), 23 sans traducteur (code, ML).
 - Reste supposé : le format des 6 autres processeurs (aucune occurrence dans ce projet) ; à confirmer sur un projet riche en Prepare au pilote.
+
+Phase 4 validée par le responsable le 2026-11-23 (format des processeurs du projet réel confirmé ; 6 processeurs restent supposés, à vérifier au pilote).
+
+## Phase 5 — Simplification du Flow (démarrée le 2026-11-23)
+
+- Règles de conservation de la ROADMAP, plus une règle dans le même esprit : une recette refusée par son traducteur (`UnsupportedConstruct`) est traitée comme une recette `MANUAL` (ses entrées et sorties restent matérialisées), car elle ne peut pas être fondue en CTE.
+
+### Réalisé
+
+- `simplify/flow.py` : raisons de conservation de chaque table produite (règles de la ROADMAP et recette non traduisible), fusion par union-find des producteurs de tables non conservées avec leur unique lecteur, étapes dans l'ordre topologique ; un Flow avec cycle est refusé. `simplify/report.py` : `simplify.md` et `simplify.json`, reproductibles.
+- CLI : `dku2dbx simplify <export.zip> [--out] [--no-fusion]`.
+
+### Résultats
+
+- `uv run pytest` : **357 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critères de fin de phase :
+  - chaque règle de conservation est vérifiée sur un graphe construit à la main (`test_each_keep_rule`, 8 règles, plus la sortie d'une recette non `AUTO`) ;
+  - la sortie de `DEMO_COMPLEXE` est vérifiée par snapshot (20 recettes → 18 étapes, 2 tables supprimées) ;
+  - `--no-fusion` redonne une étape par recette sur les deux fixtures.
+- `DEMO_SIMPLE` : 5 recettes → 3 étapes (Prepare, Stack et Join fusionnés ; `orders_enriched`, lue deux fois, reste).
+
+### Points ouverts
+
+- `DEMO_COMPLEXE` fusionne peu (presque toutes ses tables sont partitionnées, lues plusieurs fois ou touchent une recette non `AUTO`) : le gain réel se mesurera sur les vrais projets.
+- Les étapes sont prêtes pour la génération (phase 6) : une étape écrit ses tables matérialisées, ses tables supprimées y deviennent des CTE.
