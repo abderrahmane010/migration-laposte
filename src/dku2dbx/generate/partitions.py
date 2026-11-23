@@ -9,8 +9,10 @@ ASSUMPTION (H-53):
   in UTC (pieges_semantiques.md, "Dates et fuseau");
 - a partitioned output is written with ``INSERT INTO … REPLACE WHERE <col> = <date>``
   (Delta rejects a row outside the partition: inconsistencies fail, never hide);
-- an input dependency ``equals`` (same day) reads only that day of the input; any other
-  dependency function (time range, latest available…) raises UnsupportedConstruct.
+- an input dependency ``equals`` (same day) reads only that day of the input;
+  ``all_available`` (both observed on a real project) reads every partition, so the
+  input is not filtered; any other dependency function (time range, latest
+  available…) raises UnsupportedConstruct.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ PARTITION_DATE_SQL = (
 )
 # Scenario partitionsSpec -> default of the date_offset job parameter.
 PARTITION_SPECS = {"CURRENT_DAY": "0", "PREVIOUS_DAY": "1"}
-MAPPED_DEPENDENCIES = frozenset({"equals"})
+MAPPED_DEPENDENCIES = frozenset({"equals", "all_available"})
 
 
 @dataclass(frozen=True)
@@ -86,7 +88,12 @@ def filter_partitioned_inputs(query: exp.Query, recipe: Recipe, project: Project
             raise UnsupportedConstruct(
                 recipe.name, "partition dependency", f"input {inp.ref} is not partitioned"
             )
-        filters[inp.ref] = exp.EQ(this=column(part.column), expression=partition_date())
+        if functions == {"equals", "all_available"}:
+            raise UnsupportedConstruct(
+                recipe.name, "partition dependency", f"same day and all partitions on {inp.ref}"
+            )
+        if "equals" in functions:
+            filters[inp.ref] = exp.EQ(this=column(part.column), expression=partition_date())
     if not filters:
         return query
 

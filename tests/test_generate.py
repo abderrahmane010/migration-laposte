@@ -566,3 +566,23 @@ def test_cli_generate_pipeline(tmp_path: Path) -> None:
     assert "Cible B" in (tmp_path / "GENERATION.md").read_text()
     result = CliRunner().invoke(app, ["generate", export, "--target", "other"])
     assert result.exit_code == 1
+
+
+def test_all_available_dependency_reads_every_partition(tmp_path: Path) -> None:
+    """Observed on a real project: all_available = every partition, no filter."""
+    p = mf.build_demo_complexe()
+    rcp = next(r for r, _ in p.recipes if r["name"] == "sync_events")
+    rcp["inputs"]["main"]["items"][0]["deps"] = [{"func": "all_available", "params": {}}]
+    bundle = generate_job_bundle(read_files(tmp_path, p.files()))
+    [step] = [g for g in bundle.steps if "events_sync" in g.step.outputs]
+    assert step.translated
+    insert = _insert(bundle.files, "events_sync")
+    reads = insert.expression.find_all(sqlglot.exp.Table)
+    assert all(
+        not isinstance(t.parent, sqlglot.exp.From)
+        or t.name != "parcels_events"
+        or not t.find_ancestor(sqlglot.exp.Where)
+        for t in reads
+    )
+    assert "WHERE\n      `day` =" not in step.notebook  # the input is read whole
+    assert "REPLACE WHERE `day` =" in step.notebook  # the output partition is still replaced

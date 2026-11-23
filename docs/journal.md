@@ -311,3 +311,4 @@ Phase 5 validée par le responsable le 2026-11-23. Décision : une table **const
 - **Rien n'a encore tourné sur un workspace Databricks** : `databricks bundle validate` et un déploiement réel restent à faire dès qu'un bac à sable est disponible (H-50, H-54).
 - Le projet réel : périodes et dépendances de ses 24 partitions à relever (structure anonymisée) ; scénarios à `run_scenario`, `clear_items`, `sync_hive` encore MANUAL.
 - Sources partitionnées : elles devront avoir la colonne de date une fois branchées (phase 7).
+- Projet réel (relevé anonyme) : 21 partitions `time`/`DAY` et 20 dépendances `equals` traduites ; **`all_available` ajoutée** (5 dépendances : l'entrée est lue entière). Restent refusées : **3 partitions discrètes `value`** (quelle valeur un job doit-il construire ? à décider au pilote).
