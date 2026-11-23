@@ -4,9 +4,9 @@ Repris de la section « Pièges sémantiques » de `ROADMAP.md`. Chaque piège d
 
 | Piège | Dataiku | Databricks / Spark | Règle | Phase | Test |
 |---|---|---|---|---|---|
-| Chaîne vide et NULL | `isBlank`, `FillEmptyWithValue` et `coalesce` traitent `''` comme vide | `coalesce` ne remplace que NULL | Générer `coalesce(nullif(trim(col), ''), valeur)` ou l'équivalent | 4 | à faire |
-| Arrondi des négatifs | Documenté : `round(-3.5) = -3` | `round` en HALF_UP, probablement `-4` | Tester, puis générer une expression qui reproduit Dataiku | 4 | à faire |
-| Concaténation avec `+` | Concatène des chaînes (moteur DSS) | Addition numérique | Traduire en `concat()` selon le type | 4 | à faire |
+| Chaîne vide et NULL | `isBlank`, `FillEmptyWithValue` et `coalesce` traitent `''` comme vide | `coalesce` ne remplace que NULL | Générer `coalesce(nullif(col, ''), valeur)` ou l'équivalent | 4 | **en partie** : formules `isBlank`, `isNonBlank`, `coalesce` (`test_blank_means_null_or_empty_string`) ; processeur `FillEmptyWithValue` à faire |
+| Arrondi des négatifs | Documenté : `round(-3.5) = -3` | `round` en HALF_UP : `-4` | `FLOOR(x + 0.5)` (et `FLOOR(x * 10^n + 0.5) / 10^n` avec des décimales) | 4 | **fait** : `test_round_half_up_including_negatives` (PySpark) |
+| Concaténation avec `+` | Concatène des chaînes (moteur DSS) | Addition numérique | `\|\|` dès qu'un côté est une chaîne (typage des expressions) ; NULL propagé (H-46, à vérifier) | 4 | **fait** : `test_plus_concatenates_with_a_string` |
 | Dates et fuseau | Dates locales selon la configuration | Références de job en UTC | Paramètre de date explicite, documenter le décalage avec Paris | 6 | à faire |
 | Patterns de date | — | `MM` = mois, `mm` = minutes | Table de conversion des formats testée | 4 | à faire |
 | Fuzzy join | Damerau-Levenshtein (transposition = 1) | `levenshtein` simple (transposition = 2) | Classer `LLM_REVIEW` ou `MANUAL`, recalibrer les seuils | 3 | à faire |
@@ -21,3 +21,4 @@ Repris de la section « Pièges sémantiques » de `ROADMAP.md`. Chaque piège d
 | Jointure et NULL | Comportement sur les clés NULL non vérifié | `NULL = NULL` n'est jamais vrai : aucune correspondance | Comparaison SQL standard (H-37), à vérifier sur Dataiku ; sinon générer `<=>` | 3 | **fait** : `test_join_runs_on_spark` (clé NULL non appariée) |
 | Écart-type | Formule (échantillon ou population) non vérifiée | `stddev` = `stddev_samp` | Refuser `stddev` tant que la formule n'est pas confirmée (H-38) | 3 | **fait** : `test_group_never_guesses` |
 | Cadre de fenêtre | Cadre par défaut non vérifié | Avec `ORDER BY` et sans cadre : du début de la partition à la ligne courante (`RANGE`) | Toujours écrire un cadre `ROWS` explicite (H-40) et l'afficher dans l'en-tête | 3 | **fait** : `tests/test_translate_window.py` |
+| Division par zéro | Résultat non vérifié | En mode ANSI (défaut de Spark 4 et de Databricks SQL), erreur qui fait échouer le job | `try_divide` : NULL au lieu d'une erreur | 4 | **fait** : `test_division_by_zero_gives_null_not_an_error` |

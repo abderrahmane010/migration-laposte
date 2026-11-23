@@ -214,3 +214,4 @@ Phase 3 validée par le responsable le 2026-11-23, après traduction du projet r
 ## Phase 4 — Recette Prepare et langage de formules (démarrée le 2026-11-23)
 
 - **Format réel d'abord**, comme en phase 3 : la commande de structure anonymisée du pont couvre maintenant les étapes Prepare (chemins de paramètres par type de processeur) et un recensement des formules (noms de fonctions Dataiku, opérateurs, nombre de littéraux ; jamais le texte d'une formule).
+- **Langage de formules** (`translate/prepare/formula.py`) : grammaire `lark` (H-44), expressions typées (texte, nombre, booléen, date) pour choisir entre addition et concaténation, table explicite de 20 fonctions, variables de projet résolues, colonnes vérifiées à chaque étape. Pièges couverts sur PySpark : arrondi des négatifs, `+` entre chaînes, chaîne vide, division par zéro. Le test Spark de la phase 0 utilise maintenant la session partagée (il l'arrêtait pour les tests suivants).
