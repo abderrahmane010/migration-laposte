@@ -176,3 +176,10 @@ Phase 2 validée par le responsable le 2026-11-23, grille de score conservée te
 
 - **Format réel d'abord** : avant d'écrire les traducteurs, la structure anonymisée des payloads visuels du projet réel est relevée (`python -m dku2dbx_bridge.structure`, dépôt `agentic_projet` : chemins de clés, types et codes en majuscules uniquement).
 - **Noms de tables** : le SQL généré référence les datasets par leur nom Dataiku ; les phases 6 et 7 les remplaceront par `catalog.schema.table` de façon déterministe (`sqlglot`).
+
+### Avancement
+
+- **Format réel relevé** (structure anonymisée) : les fixtures suivent maintenant le vrai format ; H-09a à H-09g corrigées ou confirmées, H-09h (forme des filtres) ajoutée. La commande a été durcie après une fuite d'une valeur saisie (`FAILED`) : une valeur texte n'est montrée que sous une clé de réglage Dataiku.
+- **Socle de traduction** : `UnsupportedConstruct` (jamais de devinette), modèle `Translation`, SQL construit avec `sqlglot` (identifiants toujours entre backticks, SQL relu par `sqlglot`), en-tête de traçabilité (projet, recette, version, SHA-256 de la définition et du payload, avertissements), registre `TRANSLATORS` lu par la classification de la phase 2.
+- **Commande** `dku2dbx translate <export.zip> [--out]` : un `.sql` par sortie dans `out/<projet>/sql/`, et `translate_report.json` (traduites, non prises en charge avec motif, sans traducteur).
+- **Sync/Filter** : Sync (`STRICT_SYNC`) et Sample/Filter (`HEAD_SEQUENTIAL` → `LIMIT`, avec avertissement). Un filtre actif lève `UnsupportedConstruct` tant que le vocabulaire des opérateurs n'est pas relevé. Les dépendances de partition sont signalées (phase 6).

@@ -17,3 +17,17 @@ class ExportReadError(Dku2dbxError):
 
 class ScoringConfigError(Dku2dbxError):
     """``scoring.yaml`` is missing or invalid (unknown level, measure or class)."""
+
+
+class UnsupportedConstruct(Dku2dbxError):  # noqa: N818 (name imposed by CLAUDE.md, rule 2)
+    """A Dataiku construct has no deterministic translation (yet).
+
+    Never guessed nor dropped: the recipe is reported with ``construct`` and
+    ``detail``, and stays to be translated by a later phase or by hand.
+    """
+
+    def __init__(self, recipe: str, construct: str, detail: str) -> None:
+        super().__init__(f"{recipe}: {construct} — {detail}")
+        self.recipe = recipe
+        self.construct = construct
+        self.detail = detail

@@ -66,3 +66,10 @@ Le projet a été lu via l'API par le pont `dku2dbx_bridge` (dépôt `agentic_pr
 | H-28 | Processeurs Prepare porteurs d'une formule Dataiku : `CreateColumnWithGREL`, `FilterOnFormula` (mesure `formula_prepares`) | supposée | `test_formula_rich_prepare_and_disabled_group` | SUPPOSÉE |
 | H-29 | Un scénario Python a le type `custom_python` ; un scénario step-based qui exécute du Python a une step de type `custom_python` | supposée | `test_python_scenarios_are_counted` | CONFIRMÉE (API) : sur un projet réel, 2 scénarios `custom_python` et 3 step-based avec une step `custom_python`, sur 13 |
 | H-09h | Forme d'un filtre (pré-filtre, post-filtre, Sample/Filter, split) : `{enabled, distinct, uiData: {mode, conditions[]: {col, operator, string, num, input}}}`, plus `$status` (interface seulement). Les valeurs de `mode` et `operator` ne sont pas encore connues : un filtre actif lève `UnsupportedConstruct` tant qu'elles ne sont pas relevées | constatée (API, structure anonymisée) | `no_filter`, `formula_filter` (`make_fixture.py`) | CONSTATÉE (API), vocabulaire à relever |
+
+### Hypothèses ajoutées par les traducteurs (phase 3)
+
+| ID | Hypothèse | Source | Fixture / test | Statut |
+|---|---|---|---|---|
+| H-30 | Une recette Sync copie, dans l'ordre du schéma de sortie, les colonnes de l'entrée que la sortie garde ; seul `schemaMode: STRICT_SYNC` (observé) est traduit, les autres modes lèvent `UnsupportedConstruct` | supposée ; `STRICT_SYNC` constaté via l'API (3 recettes) | `test_sync_keeps_output_columns_in_output_order`, `test_sync_unknown_schema_mode` | SUPPOSÉE |
+| H-31 | Sample/Filter : le payload est le filtre ; `params.selection` porte `samplingMethod`, `maxRecords`, `partitionSelectionMethod`, `ordering` et un second filtre. Seul `HEAD_SEQUENTIAL` est traduit (`LIMIT`) | constatée (API, structure anonymisée : `HEAD_SEQUENTIAL`, `RANDOM_FIXED_NB`) | `test_head_sampling_is_a_limit_with_a_warning`, `test_sampling_never_guesses` | CONSTATÉE (API) |

@@ -21,6 +21,7 @@ from dku2dbx.analyze.scoring import load_scoring
 from dku2dbx.errors import ExportReadError, ScoringConfigError
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import ZipExportReader
+from dku2dbx.translate.engine import translate_project, write_translation
 
 app = typer.Typer(
     name="dku2dbx",
@@ -150,9 +151,28 @@ def simplify() -> None:
 
 
 @app.command()
-def translate() -> None:
-    """Migrer : traduire les recettes en Spark SQL (phases 3-4)."""
-    _not_implemented("translate", 3)
+def translate(
+    export: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    ),
+    out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
+) -> None:
+    """Migrer : traduire les recettes visuelles en Spark SQL, un fichier .sql par sortie."""
+    try:
+        project = ZipExportReader(export).read()
+    except ExportReadError as exc:
+        typer.echo(f"Erreur de lecture : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    result = translate_project(project)
+    write_translation(project, result, out)
+    typer.echo(
+        f"Projet {project.key} : {len(result.translated)} recette(s) traduite(s), "
+        f"{len(result.unsupported)} non prise(s) en charge, "
+        f"{len(result.without_translator)} sans traducteur pour l'instant."
+    )
+    for item in result.unsupported:
+        typer.echo(f"  - {item.recipe} ({item.type}) : {item.element} — {item.detail}")
+    typer.echo(f"SQL dans {out / project.key / 'sql'}, rapport dans translate_report.json")
 
 
 @app.command()

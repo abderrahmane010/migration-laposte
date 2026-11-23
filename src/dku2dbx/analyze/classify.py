@@ -13,10 +13,11 @@ from collections.abc import Callable, Iterator
 from dku2dbx.analyze.model import RecipeClassification, TargetClass
 from dku2dbx.model.ir import IssueKind, PrepareStep, Project, Recipe, RecipeCategory, Status
 from dku2dbx.reader.known_types import CODE_RECIPE_TYPES, GROUP_META_TYPE, PROCESSOR_META_TYPE
+from dku2dbx.translate.visual import TRANSLATORS
 
-# Recipe types whose deterministic translator exists. Empty until phase 3: each
-# translator phase adds its types here (and its tests).
-AVAILABLE_TRANSLATORS: frozenset[str] = frozenset()
+# Recipe types whose deterministic translator exists: read from the translator
+# registry, so the classification updates itself as phases 3 and 4 add translators.
+AVAILABLE_TRANSLATORS: frozenset[str] = frozenset(TRANSLATORS)
 
 # Phase 3, "Sync/Filter -> ... -> Pivot". "sampling" is the DSS Sample/Filter recipe.
 PHASE_3_TYPES = frozenset(
