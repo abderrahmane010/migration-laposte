@@ -10,7 +10,7 @@ Repris de la section « Pièges sémantiques » de `ROADMAP.md`. Chaque piège d
 | Dates et fuseau | Dates locales selon la configuration | Références de job en UTC | Paramètre de date explicite, documenter le décalage avec Paris | 6 | à faire |
 | Patterns de date | — | `MM` = mois, `mm` = minutes | Table de conversion des formats testée | 4 | à faire |
 | Fuzzy join | Damerau-Levenshtein (transposition = 1) | `levenshtein` simple (transposition = 2) | Classer `LLM_REVIEW` ou `MANUAL`, recalibrer les seuils | 3 | à faire |
-| Top N à égalité | Ordre non déterministe | Idem | Ajouter une colonne de départage | 3 | à faire |
+| Top N à égalité | Ordre non déterministe | Idem | Ajouter une colonne de départage | 3 | **fait** : départage par les autres colonnes de l'entrée, avec avertissement (`test_first_rows_with_a_deterministic_tie_break`) |
 | Distances géographiques | — | `st_distance` est planaire (degrés) | Utiliser `st_distancesphere` pour des mètres | 4 | à faire |
 | Typage | « Meanings » et inférence Dataiku | Types Spark stricts | Utiliser le schéma déclaré dans l'export, avec un `cast` explicite | 3–4 | à faire |
 | Steps Prepare groupées | `metaType` différent de `PROCESSOR` | — | Lever une erreur, ne jamais filtrer en silence | 4 | à faire. La lecture conserve déjà le groupe et ses steps imbriquées (`test_prepare_steps_including_disabled_and_grouped`) ; l'erreur sera levée par le traducteur (phase 4) |

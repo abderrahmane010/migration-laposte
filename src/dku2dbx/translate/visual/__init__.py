@@ -11,6 +11,7 @@ from dku2dbx.translate.visual.join import translate_join
 from dku2dbx.translate.visual.simple import translate_distinct, translate_sort, translate_vstack
 from dku2dbx.translate.visual.split import translate_split
 from dku2dbx.translate.visual.sync import translate_sampling, translate_sync
+from dku2dbx.translate.visual.topn import translate_topn
 from dku2dbx.translate.visual.window import translate_window
 
 Translator = Callable[[Project, Recipe], Translation]
@@ -27,4 +28,5 @@ TRANSLATORS: dict[str, Translator] = {
     "grouping": translate_grouping,
     "window": translate_window,
     "split": translate_split,
+    "topn": translate_topn,
 }
