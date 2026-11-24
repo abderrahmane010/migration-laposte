@@ -344,3 +344,36 @@ Phase 6 validée par le responsable le 2026-11-24. Projet réel : 44 étapes, do
 - Amélioration possible (non faite) : reconnaître les datasets fichiers HDFS pour afficher une raison plus précise.
 
 Phase 7 validée par le responsable le 2026-11-24 (406 tests passés).
+
+## Phase 8 — Résidu assisté par LLM (2026-11-24)
+
+### Décisions prises avec le responsable
+
+- **Python reste en pandas** : seuls les appels `dataiku` sont réécrits. La logique métier n'est pas convertie en PySpark, ce qui ne serait pas déterministe.
+- **Une réécriture complète reste « à relire »** : en-tête `TO REVIEW`, distinct de `REVIEW_REQUIRED`, qui est réservé au LLM. Elle n'est jamais AUTO.
+- **Recettes SQL en déterministe** : transpilation sqlglot depuis le dialecte de la connexion ; ce qui ne passe pas va au résidu LLM.
+- **LLM** : client de l'endpoint Model Serving plus faux client dans les tests. Désactivé tant que `config/llm.yaml` est vide. Pas d'export Lakebridge Switch.
+
+### Réalisé
+
+- `translate/code/sql_recipe.py` (H-56) : une requête par recette ; les variables deviennent des valeurs ou des paramètres de job, et les tables physiques des entrées deviennent des datasets. Sont refusés : table inconnue, fonction inconnue de sqlglot, plusieurs instructions, non-SELECT, colonnes différentes du schéma Dataiku, variable dans une chaîne plus longue. Les divisions entières sont signalées (`pieges_semantiques.md`).
+- `translate/code/python_recipe.py` (H-57) : réécriture sur l'arbre syntaxique, en recollant le texte source (commentaires et mise en forme conservés). Idiomes : `get_dataframe`, `write_with_schema`, `write_dataframe`, `get_custom_variables`, `default_project_key`, `Folder(...).get_path()`. Tout autre usage de `dataiku` (dont `api_client()`), un code Python 2, des partitions ou des arguments refusent la recette entière : jamais de réécriture partielle.
+- Bundle : les recettes Python deviennent des notebooks `src/<étape>.py`, en tâches du job (jamais dans le pipeline de la cible B), avec leurs checks après l'écriture ; section « Code réécrit à relire » dans `GENERATION.md`.
+- `translate/llm/` : `config/llm.yaml` validé (sans token), prompts versionnés `python_v1` et `sql_v1`, entrées JSON reproductibles, appel via le SDK Databricks (H-58), extraction d'un seul bloc de code, contrôles statiques (`ast`, `ruff`, `sqlglot`). La sortie porte `REVIEW_REQUIRED` avec l'endpoint et le SHA-256 du prompt. `RESIDU.md` et `residue.json` listent chaque fichier à relire, y compris les réécritures déterministes.
+- CLI : `dku2dbx residue <export.zip> [--llm-config] [--connections] [--out]` ; `translate` écrit aussi `python/*.py`.
+- Dépendances de développement : `pandas` (<3, comme les runtimes Databricks) et `pyarrow`, pour les tests d'exécution des recettes Python.
+
+### Résultats
+
+- `uv run pytest` : **475 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critères de fin de phase :
+  - la recette Python de `DEMO_COMPLEXE` est réécrite par les règles déterministes, avec un snapshot, et exécutée sur PySpark local avec des résultats calculés à la main ;
+  - le flux LLM fonctionne avec un faux client : réponses valides, invalides, inexploitables et erreurs d'appel ;
+  - le rapport liste chaque fichier à relire.
+- `DEMO_COMPLEXE` : la recette SQL et la recette Python sont traitées par les règles ; il ne reste plus que 2 étapes à migrer à la main (Prepare avec géocodage, plugin).
+
+### Points ouverts
+
+- **Aucun endpoint validé** : le flux LLM n'a tourné qu'avec le faux client (H-58 à vérifier).
+- Projet réel : nombre de recettes Python et SQL réécrites, et raisons des refus, à relever (relevé anonyme).
+- Les recettes `pyspark`, `sql_script`, `hive`, `impala` et `spark_sql_query` n'ont pas de règles déterministes : elles vont au résidu LLM.

@@ -278,3 +278,26 @@ def test_partitions_are_refused(tmp_path: Path) -> None:
     assert "partitioned" in _refused(_project(tmp_path, SCORE, partitioned_output=True)).detail
     refused = _refused(_project(tmp_path, SCORE, deps=mf.SAME_DAY))
     assert "partition dependency" in refused.detail
+
+
+@pytest.mark.spark
+def test_fixture_recipe_runs_on_spark(spark: Any) -> None:
+    """The rewritten DEMO_COMPLEXE recipe, on small synthetic data computed by hand."""
+    project = fixture("DEMO_COMPLEXE")
+    # The shared dataset is read through its branched name (phase 7).
+    tables = {"DEMO_SIMPLE.customer_stats": "customer_stats_shared"}
+    code = rewrite_python(project, project.recipe(NAME), tables).code
+    spark.createDataFrame(
+        [(10, 1), (20, None), (30, 3)], "customer_id bigint, delay_minutes int"
+    ).createOrReplaceTempView("delivered_enriched")
+    spark.createDataFrame(
+        [(10, 9.0), (20, 0.2)], "customer_id bigint, amount_eur_sum double"
+    ).createOrReplaceTempView("customer_stats_shared")
+    dbutils = FakeDbutils({parameter_name(k): str(v) for k, v in project.variables.items()})
+    try:
+        exec(compile(code, NAME, "exec"), {"spark": spark, "dbutils": dbutils})
+        got = sorted(tuple(r) for r in spark.table("customer_scores").collect())
+        # score = amount / (delay + 1), missing values as 0; is_good = score >= 0.5.
+        assert got == [(10, 4.5, True), (20, 0.2, False), (30, 0.0, False)]
+    finally:
+        spark.sql("DROP TABLE IF EXISTS customer_scores")

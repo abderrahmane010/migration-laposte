@@ -14,7 +14,8 @@ uv run dku2dbx --help                           # CLI
 uv run dku2dbx analyze exports/ --out out/      # analyse : inventaire, classement, score, vagues
 uv run dku2dbx analyze export.zip --dump-ir     # un seul projet, avec en plus out/<projet>/ir.json
 uv run dku2dbx simplify export.zip              # étapes après fusion -> out/<projet>/simplify.md
-uv run dku2dbx translate export.zip             # recettes visuelles -> out/<projet>/sql/*.sql
+uv run dku2dbx translate export.zip             # recettes -> out/<projet>/sql/*.sql et python/*.py
+uv run dku2dbx residue export.zip               # résidu LLM -> out/<projet>/residue/RESIDU.md
 uv run dku2dbx connect export.zip               # sources -> Unity Catalog, out/<projet>/a_brancher.md
 uv run dku2dbx generate export.zip              # bundle Databricks -> out/<projet>/bundle/
 uv run python tests/fixtures/make_fixture.py    # régénère les exports synthétiques
@@ -64,6 +65,12 @@ Le bundle contient `databricks.yml` (targets `dev` / `prod`, variables, permissi
 - `out/<projet>/translate_report.json` : recettes traduites, recettes **non prises en charge** avec l'élément Dataiku en cause, recettes sans traducteur.
 
 Une option non traduite n'est jamais devinée ni ignorée : la recette est listée comme non prise en charge. Les tables sont nommées comme les datasets Dataiku ; les phases 6 et 7 les remplaceront par `catalog.schema.table`.
+
+## Recettes de code et résidu LLM (phase 8)
+
+- **Recettes SQL** (`sql_query`) : transpilées par sqlglot depuis le dialecte de la base des entrées, tables physiques remplacées par les datasets, variables en paramètres de job. Elles sont traitées comme les autres étapes SQL du bundle, mais leur en-tête porte `TO REVIEW`.
+- **Recettes Python** : seuls les appels `dataiku` sont réécrits (lecture `spark.table(...).toPandas()`, écriture `saveAsTable`, variables, dossiers en Volumes) ; le code métier reste en pandas. On obtient `out/<projet>/python/<recette>.py`, et un notebook Python dans le bundle, lui aussi marqué `TO REVIEW`.
+- **Résidu** : `dku2dbx residue <export.zip> [--llm-config] [--connections]` prend les recettes `LLM_REVIEW` qu'aucune règle n'a traitées. Pour chacune, il écrit le JSON d'entrée dans `residue/inputs/` (configuration seulement, aucune donnée). Si `config/llm.yaml` désigne un endpoint Model Serving **validé par la sécurité**, il l'appelle avec le prompt versionné (`src/dku2dbx/translate/llm/prompts/`) et vérifie la réponse sans l'exécuter (`ast` et `ruff`, ou sqlglot). La réponse est alors écrite dans `residue/outputs/` avec l'en-tête `REVIEW_REQUIRED`. `RESIDU.md` liste chaque fichier à relire. Rien n'entre dans le bundle sans relecture.
 
 ## Clé d'API Dataiku
 
