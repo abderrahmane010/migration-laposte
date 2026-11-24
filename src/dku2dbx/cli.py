@@ -25,6 +25,14 @@ from dku2dbx.errors import ExportReadError, ScoringConfigError
 from dku2dbx.generate.bundle import GenerateError, generate_job_bundle, write_bundle
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.zip_reader import ZipExportReader
+from dku2dbx.reconcile.config import ReconcileConfigError, load_reconcile_config
+from dku2dbx.reconcile.notebook import (
+    NOTEBOOK,
+    PLAN,
+    REGISTRY,
+    plan_reconciliation,
+    write_reconciliation,
+)
 from dku2dbx.simplify.flow import SimplifyError, simplify_flow
 from dku2dbx.simplify.report import write_report
 from dku2dbx.translate.engine import translate_project, write_translation
@@ -38,13 +46,6 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
-
-NOT_IMPLEMENTED_EXIT_CODE = 2
-
-
-def _not_implemented(command: str, phase: int) -> None:
-    typer.echo(f"`{command}` n'est pas encore implémentée (prévue en phase {phase}).", err=True)
-    raise typer.Exit(code=NOT_IMPLEMENTED_EXIT_CODE)
 
 
 def _version_callback(value: bool) -> None:
@@ -326,9 +327,36 @@ def residue(
 
 
 @app.command()
-def reconcile() -> None:
-    """Réconcilier : comparer les sorties Dataiku et Databricks (phase 9)."""
-    _not_implemented("reconcile", 9)
+def reconcile(
+    export: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    ),
+    config_path: Path | None = typer.Option(
+        None,
+        "--config",
+        help="Clés et tolérances (défaut : config/reconcile.local.yaml, sinon reconcile.yaml).",
+    ),
+    out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
+) -> None:
+    """Réconcilier : générer le notebook qui compare les sorties Dataiku et Databricks (phase 9)."""
+    try:
+        config, source = load_reconcile_config(config_path)
+        project = ZipExportReader(export).read()
+        plan = plan_reconciliation(project, config, source)
+    except (ExportReadError, ReconcileConfigError, SimplifyError) as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    target = out / project.key / "reconcile"
+    write_reconciliation(plan, target)
+    keyed = sum(1 for s in plan.specs if s["key"])
+    typer.echo(
+        f"Projet {project.key} : {len(plan.specs)} table(s) à comparer ({keyed} avec clé, "
+        f"{len(plan.specs) - keyed} par EXCEPT ALL), {len(plan.skipped)} exclue(s) "
+        f"(configuration {source})."
+    )
+    for warning in plan.warnings:
+        typer.echo(f"  - {warning}")
+    typer.echo(f"Notebook {target / NOTEBOOK}, plan {target / PLAN}, registre {target / REGISTRY}")
 
 
 if __name__ == "__main__":  # pragma: no cover

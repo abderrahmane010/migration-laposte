@@ -384,3 +384,30 @@ Phase 7 validée par le responsable le 2026-11-24 (406 tests passés).
 - Les recettes `pyspark`, `sql_script`, `hive`, `impala` et `spark_sql_query` n'ont pas de règles déterministes : elles vont au résidu LLM.
 
 Phase 8 validée par le responsable le 2026-11-24 (486 tests passés). Décisions en cours de phase : endpoint interne compatible OpenAI autorisé (règle 5), prompt `python_v2`. Restent ouverts : appel du vLLM interne (service arrêté, erreur 503), endpoint Databricks Model Serving, réécriture déterministe des recettes `pyspark`, exécution des notebooks sur un workspace. Suite du travail sur un poste personnel avec une instance d'essai Dataiku Cloud (projets fictifs ou publics uniquement).
+
+## Phase 9 — Réconciliation (2026-11-24)
+
+### Décisions prises avec le responsable
+
+- Clés métier, tolérances, colonnes ignorées et exclusions déclarées par dataset dans `config/reconcile.local.yaml` (ignoré par Git), sinon `config/reconcile.yaml`.
+- Comparaison en Spark seul (pas de `datacompy`).
+- Validation sur PySpark local ; le test sur un vrai workspace viendra avec le pilote.
+
+### Réalisé
+
+- `reconcile/compare.py` : les quatre couches de la ROADMAP. Schéma (colonnes absentes ou en trop, types, nullabilité ; un élargissement sans perte comme `int -> bigint` est toléré), comptes au total et par colonne de partition (par défaut les dimensions de partition du dataset), agrégats par colonne (NULL, distincts, min, max, plus la somme des numériques), lignes (jointure complète sur la clé : clés manquantes de chaque côté, clés en double, valeurs différentes avec un exemple ; sans clé, `EXCEPT ALL` dans les deux sens). Les tolérances absolue et relative ne s'appliquent qu'aux valeurs numériques ; les comptes, NULL et distincts restent exacts. Le module n'importe que pyspark : il est copié dans le notebook.
+- `reconcile/notebook.py` : plan (tables produites par le flux simplifié, phase 5), notebook Databricks autonome (paramètres `catalog`, `schema`, `ref_catalog`, `ref_schema`, `results_table`), résultat par table ajouté à une table Delta, échec du notebook si une table est en `ÉCART`, table absente comptée comme `ÉCART` au lieu de faire planter l'exécution. En-tête de traçabilité : projet, version, SHA-256 de la configuration et du JSON de chaque dataset (H-60).
+- `RECONCILIATION.md` (plan) et `ECARTS_ACCEPTES.md` (registre des écarts acceptés : corriger, ou reproduire l'ancien comportement), jamais réécrit une fois créé.
+- CLI : `dku2dbx reconcile <export.zip> [--config] [--out]` ; c'était la dernière commande encore vide.
+
+### Résultats
+
+- `uv run pytest` : **505 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critères de fin de phase : chaque couche est testée avec des DataFrames identiques, légèrement différents (dans et hors tolérance) et très différents ; le notebook généré s'exécute sur PySpark local (table identique, tolérée, en écart, absente).
+- Vrai export (projet de tutoriel Dataiku Cloud) : 3 tables à comparer, plan et notebook générés.
+
+### Points ouverts
+
+- **Aucun workspace** avec à la fois les sorties Dataiku et Databricks : le notebook n'a tourné qu'en local (H-60 à vérifier).
+- Le notebook n'est pas encore une tâche du bundle : il s'importe à part (à décider : job de réconciliation dans `resources/`).
+- Les tables très grandes : la comparaison ligne à ligne fait une jointure complète ; un échantillonnage ou une comparaison par hash de partition pourra être ajouté si le pilote le demande.

@@ -1,0 +1,22 @@
+# Réconciliation (phase 9) : clé métier et tolérances par dataset Dataiku.
+#
+# CE FICHIER NE CONTIENT QUE DES EXEMPLES. Les vraies règles vont dans
+# config/reconcile.local.yaml (ignoré par Git), lu en priorité par `dku2dbx reconcile`.
+#
+# Pour chaque table (nom du dataset Dataiku) :
+#   key               colonnes de la clé métier ; absente = comparaison EXCEPT ALL
+#   abs_tolerance     écart absolu toléré sur les colonnes numériques (défaut 0)
+#   rel_tolerance     écart relatif toléré (0.001 = 0,1 %) (défaut 0)
+#   ignore_columns    colonnes exclues (horodatage de calcul, identifiant technique…)
+#   partition_columns comptes par partition ; absent = dimensions de partition du dataset
+#   reference         table Dataiku dans Unity Catalog ; absent = <ref_catalog>.<ref_schema>.<dataset>
+#   skip              true pour ne pas comparer la table
+# `defaults` s'applique à toutes les tables, chaque table peut le surcharger.
+
+defaults: {}
+
+tables: {}
+#  exemple_dataset:
+#    key: [id_exemple]
+#    abs_tolerance: 0.01
+#    ignore_columns: [date_calcul]

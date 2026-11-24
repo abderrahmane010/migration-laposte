@@ -72,6 +72,16 @@ Une option non traduite n'est jamais devinée ni ignorée : la recette est list�
 - **Recettes Python** : seuls les appels `dataiku` sont réécrits (lecture `spark.table(...).toPandas()`, écriture `saveAsTable`, variables, dossiers en Volumes) ; le code métier reste en pandas. On obtient `out/<projet>/python/<recette>.py`, et un notebook Python dans le bundle, lui aussi marqué `TO REVIEW`.
 - **Résidu** : `dku2dbx residue <export.zip> [--llm-config] [--connections]` prend les recettes `LLM_REVIEW` qu'aucune règle n'a traitées. Pour chacune, il écrit le JSON d'entrée dans `residue/inputs/` (configuration seulement, aucune donnée). Si `config/llm.local.yaml` (ignoré par Git), sinon `config/llm.yaml`, désigne un endpoint **validé par la sécurité** (Model Serving Databricks, ou endpoint interne compatible OpenAI comme le vLLM La Poste : voir les exemples dans `config/llm.yaml` ; le vLLM peut aussi être déclaré dans le `.env` par `VLLM_BASE_URL`, `VLLM_MODEL` et `SSL_CA_BUNDLE`), il l'appelle avec le prompt versionné (`src/dku2dbx/translate/llm/prompts/`) et vérifie la réponse sans l'exécuter (`ast` et `ruff`, ou sqlglot). La réponse est alors écrite dans `residue/outputs/` avec l'en-tête `REVIEW_REQUIRED`. `RESIDU.md` liste chaque fichier à relire. Rien n'entre dans le bundle sans relecture.
 
+## Réconcilier (phase 9)
+
+`dku2dbx reconcile <export.zip> [--config] [--out]` génère dans `out/<projet>/reconcile/` :
+
+- `reconcile.py` : un notebook Databricks autonome (rien à installer sur le workspace) qui compare chaque table produite par le flux migré avec la sortie Dataiku du même dataset, en quatre couches : schéma, nombre de lignes (au total et par partition), agrégats par colonne, lignes (jointure sur la clé métier, ou `EXCEPT ALL` sans clé). Paramètres : `catalog`, `schema` (tables Databricks), `ref_catalog`, `ref_schema` (sorties Dataiku dans Unity Catalog). Il écrit un résultat par table dans la table Delta `dku2dbx_reconciliation` et **échoue** si une table est en `ÉCART` ;
+- `RECONCILIATION.md` : le plan (tables, clés, tolérances, partitions) ;
+- `ECARTS_ACCEPTES.md` : le registre des écarts acceptés, à remplir par le métier (jamais réécrit).
+
+Statut par table : `IDENTIQUE`, `ÉCART TOLÉRÉ` (dans les tolérances, ou élargissement de type sans perte) ou `ÉCART`. Clés et tolérances : `config/reconcile.local.yaml` (ignoré par Git), sinon `config/reconcile.yaml`.
+
 ## Clé d'API Dataiku
 
 La clé n'est jamais écrite dans le code ni dans Git (règle 4 de `CLAUDE.md`). Elle vit dans un fichier `.env` local, ignoré par Git. Un hook `pre-commit` refuse en plus tout commit d'un fichier `.env`.

@@ -5,17 +5,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from dku2dbx import __version__
-from dku2dbx.cli import NOT_IMPLEMENTED_EXIT_CODE, app
+from dku2dbx.cli import app
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 
 runner = CliRunner()
 
 COMMANDS = ["analyze", "simplify", "translate", "generate", "connect", "reconcile"]
-PLACEHOLDERS = ["reconcile"]
 
 
 def test_help_lists_all_commands() -> None:
@@ -29,14 +27,6 @@ def test_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert __version__ in result.output
-
-
-@pytest.mark.parametrize("command", PLACEHOLDERS)
-def test_placeholder_commands_fail_explicitly(command: str) -> None:
-    """An empty command must never look like a successful run."""
-    result = runner.invoke(app, [command])
-    assert result.exit_code == NOT_IMPLEMENTED_EXIT_CODE
-    assert "pas encore implémentée" in result.output
 
 
 def test_analyze_dump_ir(tmp_path: Path) -> None:
