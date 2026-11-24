@@ -28,3 +28,10 @@ def spark(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SparkSession]:
     )
     yield session
     session.stop()
+
+
+@pytest.fixture(autouse=True)
+def _no_llm_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A developer's .env (VLLM_*) must never make a test call a real LLM."""
+    for name in ("VLLM_BASE_URL", "VLLM_MODEL", "SSL_CA_BUNDLE"):
+        monkeypatch.delenv(name, raising=False)

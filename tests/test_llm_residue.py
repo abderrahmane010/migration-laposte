@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import ssl
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ from dku2dbx.translate.llm.residue import (
     Status,
     extract_code,
     load_prompt,
+    make_client,
     residual_recipes,
     run_residue,
     static_checks,
@@ -30,6 +33,10 @@ from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 from tests.test_translate_sync import fixture, read_files
 
 ENABLED = LLMConfig(endpoint="test-endpoint")
+OPENAI_YAML = (
+    "provider: openai\nbase_url: https://llm.example.test/v1\nmodel: qwen-test\n"
+    "api_key_env: DKU2DBX_TEST_LLM_KEY\ntimeout_s: 7\n"
+)
 
 PY_API = """\
 import dataiku
@@ -84,9 +91,61 @@ GOOD_SQL = "Voici :\n```sql\nSELECT customer_id FROM customers\n```\n"
 # Configuration and prompts
 # --------------------------------------------------------------------------- #
 def test_repository_config_disables_the_llm() -> None:
-    config = load_llm_config()
+    config = load_llm_config(Path("config/llm.yaml"))
     assert not config.enabled
     assert config.source == "config/llm.yaml"
+
+
+def test_local_config_is_read_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    assert not load_llm_config().enabled  # no file at all
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "llm.yaml").write_text("endpoint: null\n", encoding="utf-8")
+    (tmp_path / "config" / "llm.local.yaml").write_text(OPENAI_YAML, encoding="utf-8")
+    config = load_llm_config()
+    assert config.source == "config/llm.local.yaml"
+    assert config.enabled and config.provider == "openai"
+    assert config.target == "qwen-test (API compatible OpenAI, https://llm.example.test/v1)"
+
+
+def test_environment_declares_the_internal_vllm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "llm.yaml").write_text("endpoint: null\n", encoding="utf-8")
+    monkeypatch.setenv("VLLM_BASE_URL", "https://llm.example.test/v1")
+    monkeypatch.setenv("VLLM_MODEL", "qwen-test")
+    monkeypatch.setenv("SSL_CA_BUNDLE", "./ca.crt")
+    config = load_llm_config()  # before config/llm.yaml
+    assert config.enabled and config.provider == "openai" and config.ca_bundle == "./ca.crt"
+    assert config.source == "variables d'environnement VLLM_BASE_URL et VLLM_MODEL"
+    assert config.api_key_env == "OPENAI_API_KEY"
+    assert not load_llm_config(Path("config/llm.yaml")).enabled  # explicit file wins
+    (tmp_path / "config" / "llm.local.yaml").write_text("endpoint: null\n", encoding="utf-8")
+    assert not load_llm_config().enabled  # local file wins
+    (tmp_path / "config" / "llm.local.yaml").unlink()
+    monkeypatch.setenv("VLLM_BASE_URL", "http://llm.example.test/v1")
+    with pytest.raises(LLMConfigError, match="VLLM_BASE_URL"):
+        load_llm_config()  # TLS never disabled, even from the environment
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "provider: openai\nbase_url: http://llm.example.test/v1\nmodel: m\n",  # no TLS
+        "provider: openai\nbase_url: https://llm.example.test/v1\n",  # no model
+        "provider: openai\nendpoint: e\n",  # Databricks field
+        "base_url: https://llm.example.test/v1\nmodel: m\n",  # provider missing
+        "provider: openai\nbase_url: https://x/v1\nmodel: m\napi_key: secret\n",  # no key
+    ],
+)
+def test_openai_config_validation(tmp_path: Path, bad: str) -> None:
+    path = tmp_path / "llm.yaml"
+    path.write_text(bad, encoding="utf-8")
+    with pytest.raises(LLMConfigError, match="invalid"):
+        load_llm_config(path)
 
 
 def test_config_validation(tmp_path: Path) -> None:
@@ -184,7 +243,7 @@ def test_answers_are_checked_and_flagged_review_required(tmp_path: Path) -> None
     assert user == (tmp_path / "r" / "inputs" / "py_api.json").read_text(encoding="utf-8")
     py = (tmp_path / "r" / "outputs" / "py_api.py").read_text(encoding="utf-8")
     assert py.startswith(f"# {REVIEW_REQUIRED}\n")
-    assert "# Model Serving endpoint: test-endpoint" in py
+    assert "# LLM: test-endpoint (Databricks Model Serving)" in py
     assert f"# Prompt: python_v1 (SHA-256 {load_prompt('python').sha256})" in py
     assert "# Static check: ruff : OK" in py  # spark and dbutils are notebook globals
     assert py.endswith('dbutils.widgets.get("x")\n')
@@ -269,3 +328,67 @@ def test_cli_residue(tmp_path: Path) -> None:
     bad.write_text("endpoint: [unclosed\n", encoding="utf-8")
     result = CliRunner().invoke(app, ["residue", export, "--llm-config", str(bad)])
     assert result.exit_code == 1
+
+
+# --------------------------------------------------------------------------- #
+# OpenAI-compatible client (internal vLLM): request shape, TLS, proxy, key
+# --------------------------------------------------------------------------- #
+class _FakeResponse:
+    def __init__(self, body: dict[str, object]) -> None:
+        self._body = json.dumps(body).encode("utf-8")
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+
+def test_openai_client_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "llm.yaml"
+    path.write_text(OPENAI_YAML, encoding="utf-8")
+    config = load_llm_config(path)
+    seen: dict[str, object] = {}
+
+    class FakeOpener:
+        def open(self, request: urllib.request.Request, timeout: float) -> _FakeResponse:
+            seen["request"], seen["timeout"] = request, timeout
+            return _FakeResponse({"choices": [{"message": {"content": "```python\nx = 1\n```"}}]})
+
+    def fake_build_opener(*handlers: urllib.request.BaseHandler) -> FakeOpener:
+        seen["handlers"] = handlers
+        return FakeOpener()
+
+    monkeypatch.setattr(urllib.request, "build_opener", fake_build_opener)
+    monkeypatch.setenv("DKU2DBX_TEST_LLM_KEY", "k-test")
+    client = make_client(config)
+    assert client is not None
+    assert client.complete("system prompt", "user json") == "```python\nx = 1\n```"
+    request = seen["request"]
+    assert isinstance(request, urllib.request.Request)
+    assert request.full_url == "https://llm.example.test/v1/chat/completions"
+    assert request.get_header("Authorization") == "Bearer k-test"
+    assert isinstance(request.data, bytes)
+    body = json.loads(request.data)
+    assert body["model"] == "qwen-test" and body["temperature"] == 0.0
+    assert [m["role"] for m in body["messages"]] == ["system", "user"]
+    assert seen["timeout"] == 7
+    handlers = seen["handlers"]
+    assert isinstance(handlers, tuple)
+    https = next(h for h in handlers if isinstance(h, urllib.request.HTTPSHandler))
+    context = https._context  # type: ignore[attr-defined]
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname  # TLS verified
+    proxy = next(h for h in handlers if isinstance(h, urllib.request.ProxyHandler))
+    assert proxy.proxies == {}  # internal endpoint: direct
+    monkeypatch.setenv("DKU2DBX_TEST_LLM_KEY", "EMPTY")  # vLLM convention: no key
+    make_client(config).complete("s", "u")  # type: ignore[union-attr]
+    request = seen["request"]
+    assert isinstance(request, urllib.request.Request)
+    assert request.get_header("Authorization") is None
+
+
+def test_make_client_is_none_when_disabled() -> None:
+    assert make_client(LLMConfig()) is None

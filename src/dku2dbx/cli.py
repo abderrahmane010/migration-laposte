@@ -30,7 +30,7 @@ from dku2dbx.simplify.report import write_report
 from dku2dbx.translate.engine import translate_project, write_translation
 from dku2dbx.translate.llm.config import LLMConfigError, load_llm_config
 from dku2dbx.translate.llm.report import write_residue_report
-from dku2dbx.translate.llm.residue import Status, run_residue, serving_client
+from dku2dbx.translate.llm.residue import Status, make_client, run_residue
 
 app = typer.Typer(
     name="dku2dbx",
@@ -291,7 +291,9 @@ def residue(
         ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
     llm_config: Path | None = typer.Option(
-        None, "--llm-config", help="Endpoint validé (défaut : config/llm.yaml)."
+        None,
+        "--llm-config",
+        help="Endpoint validé (défaut : config/llm.local.yaml, sinon config/llm.yaml).",
     ),
     connections: Path | None = typer.Option(
         None, "--connections", help="Mapping des sources (phase 7, défaut : config/…)."
@@ -307,7 +309,7 @@ def residue(
         typer.echo(f"Erreur : {exc}", err=True)
         raise typer.Exit(code=1) from exc
     branching = branch_sources(project, mapping, mapping_source)
-    client = serving_client(config) if config.enabled else None
+    client = make_client(config)
     target = out / project.key / "residue"
     result = run_residue(project, config, target, client=client, branching=branching)
     write_residue_report(result, target)

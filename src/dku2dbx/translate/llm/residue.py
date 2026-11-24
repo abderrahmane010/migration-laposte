@@ -4,8 +4,8 @@ The residue is every recipe classified LLM_REVIEW (phase 2) that the determinist
 translators and rewriters did not handle. For each one:
 1. an input JSON is always written (recipe definition, code or payload, input and
    output schemas, Unity Catalog tables, job parameters, reason of the refusal);
-2. only when ``config/llm.yaml`` names a security-validated endpoint (CLAUDE.md, rule
-   5), the versioned prompt and this JSON are sent to it;
+2. only when ``config/llm.yaml`` (or ``llm.local.yaml``) names a security-validated
+   endpoint (CLAUDE.md, rule 5), the versioned prompt and this JSON are sent to it;
 3. the answer is checked statically (``ast`` and ``ruff`` when installed for Python,
    ``sqlglot`` for SQL), never run, and written with a ``REVIEW_REQUIRED`` header. It is
    never AUTO and never enters the bundle by itself: a reviewer copies it there.
@@ -16,9 +16,12 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import re
 import shutil
+import ssl
 import subprocess
+import urllib.request
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -280,7 +283,7 @@ def output_header(
         f"Dataiku recipe: {recipe.name} ({recipe.type})",
         f"Recipe JSON SHA-256: {recipe.source_sha256}",
         f"Payload SHA-256: {payload_sha256(recipe)}",
-        f"Model Serving endpoint: {config.endpoint}",
+        f"LLM: {config.target}",
         f"Prompt: {prompt.name} (SHA-256 {prompt.sha256})",
         *(f"Static check: {c}" for c in checks),
     ]
@@ -309,7 +312,7 @@ def run_residue(
     for stale in [*out.glob("inputs/*.json"), *out.glob("outputs/*")]:
         stale.unlink()
     llm = (
-        f"endpoint {config.endpoint} ({config.source})"
+        f"{config.target} ({config.source})"
         if config.enabled and client is not None
         else f"désactivé : aucun endpoint validé dans {config.source}"
     )
@@ -384,3 +387,50 @@ def serving_client(config: LLMConfig) -> LLMClient:  # pragma: no cover (no endp
             return str(response.choices[0].message.content)
 
     return _Serving()
+
+
+def openai_client(config: LLMConfig) -> LLMClient:
+    """Client of an internal OpenAI-compatible endpoint (vLLM...), standard library only.
+
+    TLS is always verified, against ``ca_bundle`` when given; no proxy unless
+    ``use_env_proxy``; the key, if any, comes from the ``api_key_env`` variable.
+    """
+    assert config.base_url and config.model  # enabled openai configuration
+    context = ssl.create_default_context(cafile=config.ca_bundle)
+    handlers: list[urllib.request.BaseHandler] = [urllib.request.HTTPSHandler(context=context)]
+    if not config.use_env_proxy:
+        handlers.append(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(*handlers)
+    url = config.base_url.rstrip("/") + "/chat/completions"
+    key = os.environ.get(config.api_key_env, "")
+    headers = {"Content-Type": "application/json"}
+    if key and key != "EMPTY":
+        headers["Authorization"] = f"Bearer {key}"
+    model = config.model
+
+    class _OpenAI:
+        def complete(self, system: str, user: str) -> str:
+            body = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": config.max_tokens,
+                "temperature": config.temperature,
+            }
+            request = urllib.request.Request(
+                url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST"
+            )
+            with opener.open(request, timeout=config.timeout_s) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            return str(data["choices"][0]["message"]["content"])
+
+    return _OpenAI()
+
+
+def make_client(config: LLMConfig) -> LLMClient | None:
+    """The client of the configured endpoint; None when the LLM is disabled."""
+    if not config.enabled:
+        return None
+    return openai_client(config) if config.provider == "openai" else serving_client(config)

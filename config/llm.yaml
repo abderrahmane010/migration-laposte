@@ -1,10 +1,25 @@
-# Endpoint Model Serving Databricks VALIDÉ PAR LA SÉCURITÉ (phase 8).
-# Vide par défaut : sans endpoint, l'étape LLM est désactivée (règle 5 de CLAUDE.md) ;
+# Endpoint LLM VALIDÉ PAR LA SÉCURITÉ (phase 8, règle 5 de CLAUDE.md).
+# Vide par défaut : sans endpoint, l'étape LLM est désactivée ;
 # `dku2dbx residue` prépare alors seulement les fichiers d'entrée.
-# Aucun token ici : l'authentification passe par un profil Databricks CLI
-# ou des variables d'environnement.
+# Les vraies valeurs vont dans config/llm.local.yaml (ignoré par Git), lu en priorité,
+# ou dans le .env : VLLM_BASE_URL, VLLM_MODEL et SSL_CA_BUNDLE (provider openai).
+# Ordre : --llm-config, llm.local.yaml, variables VLLM_*, puis ce fichier.
+# Aucun token ici.
+#
+# 1. Databricks Model Serving (authentification par profil Databricks CLI) :
+#      provider: databricks
+#      endpoint: <nom de l'endpoint>
+#      profile: <profil>
+# 2. Endpoint interne La Poste compatible OpenAI, ex. vLLM (décision du 2026-11-24) :
+#      provider: openai
+#      base_url: https://<hôte interne>/v1     # https obligatoire, TLS toujours vérifié
+#      model: <modèle servi>
+#      ca_bundle: <chemin du certificat de l'autorité interne>
+#      api_key_env: OPENAI_API_KEY             # NOM de la variable, jamais la clé
+#      use_env_proxy: false                    # true pour passer par HTTP(S)_PROXY
 endpoint: null
 profile: null
 # Facultatif (valeurs par défaut) :
 # max_tokens: 4096
 # temperature: 0.0
+# timeout_s: 300
