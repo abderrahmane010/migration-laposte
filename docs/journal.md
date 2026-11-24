@@ -411,3 +411,5 @@ Phase 8 validée par le responsable le 2026-11-24 (486 tests passés). Décision
 - **Aucun workspace** avec à la fois les sorties Dataiku et Databricks : le notebook n'a tourné qu'en local (H-60 à vérifier).
 - Le notebook n'est pas encore une tâche du bundle : il s'importe à part (à décider : job de réconciliation dans `resources/`).
 - Les tables très grandes : la comparaison ligne à ligne fait une jointure complète ; un échantillonnage ou une comparaison par hash de partition pourra être ajouté si le pilote le demande.
+
+Phase 9 validée par le responsable le 2026-11-24 (505 tests passés). Suite prévue par la ROADMAP : le pilote (2 ou 3 projets réels de bout en bout, en parallèle avec Dataiku, jusqu'à une réconciliation signée par le métier), puis la phase 10 (interface, optionnelle).
