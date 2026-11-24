@@ -80,6 +80,12 @@ def page_analyze() -> None:
     cols[1].metric("Niveau", result.level.value)
     cols[2].metric("Effort estimé", f"{result.effort_days:g} j")
     cols[3].metric("Points à examiner", len(current.project.issues))
+    problems = journey.issues(current)
+    if problems:
+        st.subheader("Points à examiner")
+        st.dataframe(pd.DataFrame(problems), hide_index=True, width="stretch")
+    else:
+        st.success("Export complet : aucun point à examiner.")
     st.subheader("Recettes par classe cible")
     st.bar_chart(pd.Series(result.recipes_by_class, name="recettes"))
     with st.expander("Rapport complet (analyse.md)"):

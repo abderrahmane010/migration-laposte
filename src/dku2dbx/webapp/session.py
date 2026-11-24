@@ -73,6 +73,34 @@ def analysis(session: Session) -> tuple[ProjectAnalysis, str]:
     return result, project_markdown(result, None)
 
 
+ISSUE_HELP = {
+    "UNKNOWN_DATASET_TYPE": "type de dataset inconnu : à ajouter ou à migrer à la main",
+    "UNKNOWN_RECIPE_TYPE": "type de recette inconnu : la recette passe en migration manuelle",
+    "UNKNOWN_SCENARIO_TYPE": "type de scénario inconnu : à recréer à la main",
+    "UNKNOWN_STEP_META_TYPE": "step Prepare d'un genre inconnu (groupe ?) : jamais ignorée",
+    "UNRESOLVED_VARIABLE": "variable ${…} introuvable : la définir (projet ou instance)",
+    "MISSING_REFERENCE": "objet cité mais absent de l'export (dataset, plugin, projet partagé)",
+    "MISSING_PAYLOAD": "fichier de paramètres de la recette absent de l'export",
+    "MULTIPLE_PAYLOADS": "plusieurs fichiers de paramètres pour une recette",
+    "INVALID_PAYLOAD": "fichier de paramètres illisible",
+    "UNPARSED_ENTRY": "fichiers de l'export non utiles à la migration (dashboards, analyses…)",
+    "FLOW_CYCLE": "cycle dans le Flow : le projet ne peut pas être ordonné",
+}
+
+
+def issues(session: Session) -> list[dict[str, str]]:
+    """The points to examine, one row per issue, with what to do (the "Analyser" page)."""
+    return [
+        {
+            "type": issue.kind.value,
+            "objet": f"{issue.object_kind.value} {issue.object_name}",
+            "message": issue.message,
+            "que faire": ISSUE_HELP.get(issue.kind.value, ""),
+        }
+        for issue in session.project.issues
+    ]
+
+
 def simplification(session: Session) -> tuple[SimplifiedFlow, str]:
     flow = simplify_flow(session.project)
     return flow, simplify_markdown(flow)

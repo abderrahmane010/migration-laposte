@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from dku2dbx.model.ir import IssueKind
 from dku2dbx.webapp import session as journey
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 
@@ -163,3 +164,42 @@ def test_app_reports_an_unreadable_export() -> None:
     at.file_uploader[0].upload("bad.zip", b"not a zip", "application/zip").run()
     assert not at.exception, at.exception
     assert at.error[0].value.startswith("Export illisible")
+
+
+def _broken_simple() -> bytes:
+    """DEMO_SIMPLE with an unknown recipe type (a readable but incomplete export)."""
+    source = zipfile.ZipFile(io.BytesIO(SIMPLE))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name in source.namelist():
+            data = source.read(name)
+            if name == "project_config/recipes/group_by_customer.json":
+                data = data.replace(b'"type": "grouping"', b'"type": "recette_inconnue"')
+            archive.writestr(name, data)
+    return buffer.getvalue()
+
+
+def test_issues_are_listed_with_what_to_do(tmp_path: Path) -> None:
+    session = journey.open_export(_broken_simple(), "x.zip", tmp_path)
+    rows = journey.issues(session)
+    assert rows == [
+        {
+            "type": "UNKNOWN_RECIPE_TYPE",
+            "objet": "RECIPE group_by_customer",
+            "message": rows[0]["message"],
+            "que faire": "type de recette inconnu : la recette passe en migration manuelle",
+        }
+    ]
+    assert "recette_inconnue" in rows[0]["message"]
+    assert set(journey.ISSUE_HELP) == {k.value for k in IssueKind}  # every kind explained
+    clean = journey.open_export(SIMPLE, "y.zip", tmp_path / "clean")
+    assert journey.issues(clean) == []
+
+
+def test_app_shows_the_points_to_examine() -> None:
+    at = _app()
+    at.file_uploader[0].upload("x.zip", _broken_simple(), "application/zip").run()
+    _go(at, "2. Analyser")
+    assert at.metric[3].value == "1"
+    assert at.subheader[0].value == "Points à examiner"
+    assert list(at.dataframe[0].value["type"]) == ["UNKNOWN_RECIPE_TYPE"]
