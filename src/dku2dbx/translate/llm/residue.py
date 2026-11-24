@@ -97,9 +97,13 @@ class Prompt:
         return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
 
+PROMPT_VERSIONS = {"python": 2, "sql": 1}
+"""Current version per language; older prompts stay in prompts/ for traceability."""
+
+
 def load_prompt(language: str) -> Prompt:
     """Versioned prompt of a target language (``prompts/<language>_v<N>.md``)."""
-    name = f"{language}_v1"
+    name = f"{language}_v{PROMPT_VERSIONS[language]}"
     text = (
         resources.files("dku2dbx.translate.llm")
         .joinpath(f"prompts/{name}.md")
@@ -299,6 +303,20 @@ def _write(path: Path, text: str) -> None:
     path.write_bytes(text.encode("utf-8"))
 
 
+UNAVAILABLE = {502, 503, 504}
+
+
+def _call_error(exc: Exception) -> list[str]:
+    """The error of a failed call, with a hint when the LLM server is not running."""
+    lines = [f"{type(exc).__name__}: {str(exc)[:200]}"]
+    if getattr(exc, "code", None) in UNAVAILABLE:
+        lines.append(
+            "serveur LLM indisponible (aucune instance ne répond) : vérifier qu'il tourne, "
+            "puis relancer la même commande"
+        )
+    return lines
+
+
 def run_residue(
     project: Project,
     config: LLMConfig,
@@ -341,7 +359,7 @@ def run_residue(
             answer = client.complete(prompt.text, user)
         except Exception as exc:  # network, permissions, quota...: reported, never fatal
             item.status = Status.ERROR
-            item.checks = [f"{type(exc).__name__}: {str(exc)[:200]}"]
+            item.checks = _call_error(exc)
             continue
         code = extract_code(answer, language)
         if code is None:

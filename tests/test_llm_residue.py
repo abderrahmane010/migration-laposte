@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import ssl
+import urllib.error
 import urllib.request
+from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -117,6 +119,10 @@ def test_environment_declares_the_internal_vllm(
     (tmp_path / "config" / "llm.yaml").write_text("endpoint: null\n", encoding="utf-8")
     monkeypatch.setenv("VLLM_BASE_URL", "https://llm.example.test/v1")
     monkeypatch.setenv("VLLM_MODEL", "qwen-test")
+    monkeypatch.setenv("SSL_CA_BUNDLE", "./absent.crt")
+    with pytest.raises(LLMConfigError, match=r"absent\.crt: certificate file not found"):
+        load_llm_config()  # clear message, no traceback
+    (tmp_path / "ca.crt").write_text("test\n", encoding="utf-8")
     monkeypatch.setenv("SSL_CA_BUNDLE", "./ca.crt")
     config = load_llm_config()  # before config/llm.yaml
     assert config.enabled and config.provider == "openai" and config.ca_bundle == "./ca.crt"
@@ -163,7 +169,7 @@ def test_config_validation(tmp_path: Path) -> None:
 def test_prompts_are_versioned_and_packaged() -> None:
     for language in ("python", "sql"):
         prompt = load_prompt(language)
-        assert prompt.name == f"{language}_v1"
+        assert prompt.name == {"python": "python_v2", "sql": "sql_v1"}[language]
         assert "exactly one fenced code block" in prompt.text
         assert len(prompt.sha256) == 64
 
@@ -244,7 +250,7 @@ def test_answers_are_checked_and_flagged_review_required(tmp_path: Path) -> None
     py = (tmp_path / "r" / "outputs" / "py_api.py").read_text(encoding="utf-8")
     assert py.startswith(f"# {REVIEW_REQUIRED}\n")
     assert "# LLM: test-endpoint (Databricks Model Serving)" in py
-    assert f"# Prompt: python_v1 (SHA-256 {load_prompt('python').sha256})" in py
+    assert f"# Prompt: python_v2 (SHA-256 {load_prompt('python').sha256})" in py
     assert "# Static check: ruff : OK" in py  # spark and dbutils are notebook globals
     assert py.endswith('dbutils.widgets.get("x")\n')
     sql = (tmp_path / "r" / "outputs" / "sql_udf.sql").read_text(encoding="utf-8")
@@ -392,3 +398,25 @@ def test_openai_client_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 def test_make_client_is_none_when_disabled() -> None:
     assert make_client(LLMConfig()) is None
+
+
+def test_unavailable_server_gets_a_hint(tmp_path: Path) -> None:
+    class Down:
+        def complete(self, system: str, user: str) -> str:
+            raise urllib.error.HTTPError("https://x.test", 503, "Service Unavailable", {}, None)  # type: ignore[arg-type]
+
+    residue = run_residue(_residue_project(tmp_path), ENABLED, tmp_path / "r", client=Down())
+    item = residue.items[0]
+    assert item.status == Status.ERROR
+    assert item.checks[0] == "HTTPError: HTTP Error 503: Service Unavailable"
+    assert "serveur LLM indisponible" in item.checks[1]
+
+
+def test_python_prompt_v2_separates_pandas_and_spark_writes() -> None:
+    text = load_prompt("python").text
+    assert "spark.createDataFrame(df).write" in text  # pandas
+    assert 'df.write.mode("overwrite").option("overwriteSchema", "true")' in text  # Spark
+    assert "Never wrap a Spark DataFrame in `spark.createDataFrame`" in text
+    assert "SparkContext.getOrCreate()" in text
+    old = resources.files("dku2dbx.translate.llm").joinpath("prompts/python_v1.md")
+    assert old.is_file()  # kept for the traceability of earlier outputs

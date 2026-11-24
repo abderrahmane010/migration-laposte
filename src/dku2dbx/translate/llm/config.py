@@ -67,6 +67,8 @@ class LLMConfig(BaseModel):
                 raise ValueError("provider openai: base_url and model go together")
             if self.base_url and not self.base_url.startswith("https://"):
                 raise ValueError("provider openai: base_url must use https://")
+            if self.ca_bundle and not Path(self.ca_bundle).is_file():
+                raise ValueError(f"ca_bundle {self.ca_bundle}: certificate file not found")
         elif self.base_url or self.model or self.ca_bundle:
             raise ValueError("provider databricks: base_url/model/ca_bundle need provider openai")
         return self
