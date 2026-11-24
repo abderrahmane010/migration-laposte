@@ -1,6 +1,10 @@
 # Endpoint Model Serving Databricks VALIDÉ PAR LA SÉCURITÉ (phase 8).
-# Vide par défaut : sans endpoint, l'étape LLM est désactivée (règle 5 de CLAUDE.md).
+# Vide par défaut : sans endpoint, l'étape LLM est désactivée (règle 5 de CLAUDE.md) ;
+# `dku2dbx residue` prépare alors seulement les fichiers d'entrée.
 # Aucun token ici : l'authentification passe par un profil Databricks CLI
 # ou des variables d'environnement.
 endpoint: null
 profile: null
+# Facultatif (valeurs par défaut) :
+# max_tokens: 4096
+# temperature: 0.0

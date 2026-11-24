@@ -28,6 +28,9 @@ from dku2dbx.reader.zip_reader import ZipExportReader
 from dku2dbx.simplify.flow import SimplifyError, simplify_flow
 from dku2dbx.simplify.report import write_report
 from dku2dbx.translate.engine import translate_project, write_translation
+from dku2dbx.translate.llm.config import LLMConfigError, load_llm_config
+from dku2dbx.translate.llm.report import write_residue_report
+from dku2dbx.translate.llm.residue import Status, run_residue, serving_client
 
 app = typer.Typer(
     name="dku2dbx",
@@ -280,6 +283,44 @@ def connect(
             typer.echo(f"  - {name} : {problem}")
         if problems:
             raise typer.Exit(code=1)
+
+
+@app.command()
+def residue(
+    export: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    ),
+    llm_config: Path | None = typer.Option(
+        None, "--llm-config", help="Endpoint validé (défaut : config/llm.yaml)."
+    ),
+    connections: Path | None = typer.Option(
+        None, "--connections", help="Mapping des sources (phase 7, défaut : config/…)."
+    ),
+    out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
+) -> None:
+    """Migrer : préparer le résidu pour le LLM et, si un endpoint validé existe, l'appeler."""
+    try:
+        config = load_llm_config(llm_config)
+        mapping, mapping_source = load_connections(connections)
+        project = ZipExportReader(export, mapping.instance_variables).read()
+    except (ExportReadError, ConnectionsError, LLMConfigError) as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    branching = branch_sources(project, mapping, mapping_source)
+    client = serving_client(config) if config.enabled else None
+    target = out / project.key / "residue"
+    result = run_residue(project, config, target, client=client, branching=branching)
+    write_residue_report(result, target)
+    counts = Counter(item.status for item in result.items)
+    typer.echo(
+        f"Projet {project.key} : {len(result.items)} recette(s) dans le résidu LLM "
+        f"({', '.join(f'{n} {s}' for s, n in sorted(counts.items())) or 'aucune'}), "
+        f"{len(result.deterministic_to_review)} réécriture(s) déterministe(s) à relire."
+    )
+    typer.echo(f"LLM : {result.llm}")
+    if not config.enabled:
+        typer.echo(f"Entrées prêtes ({Status.READY}) dans {target / 'inputs'}")
+    typer.echo(f"Rapport dans {target / 'RESIDU.md'}")
 
 
 @app.command()
