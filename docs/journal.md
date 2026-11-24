@@ -413,3 +413,30 @@ Phase 8 validée par le responsable le 2026-11-24 (486 tests passés). Décision
 - Les tables très grandes : la comparaison ligne à ligne fait une jointure complète ; un échantillonnage ou une comparaison par hash de partition pourra être ajouté si le pilote le demande.
 
 Phase 9 validée par le responsable le 2026-11-24 (505 tests passés). Suite prévue par la ROADMAP : le pilote (2 ou 3 projets réels de bout en bout, en parallèle avec Dataiku, jusqu'à une réconciliation signée par le métier), puis la phase 10 (interface, optionnelle).
+
+## Phase 10 — Interface : Databricks App (2026-11-24)
+
+### Décisions prises avec le responsable
+
+- **Phase 10 avant le pilote**, par décision du responsable (la ROADMAP la place après la validation du pilote).
+- Streamlit ; construite et testée en local d'abord (aucun workspace avec les Apps activées pour l'instant).
+- L'étape « Migrer » propose le bundle en **téléchargement** ; le déploiement reste un geste humain après relecture (l'app n'a pas besoin du droit de créer des jobs).
+
+### Réalisé
+
+- `src/dku2dbx/webapp/session.py` : le parcours sans Streamlit, une fonction par étape, qui appelle le code de la CLI (aucune logique propre à l'app). Contrôle de l'export déposé (ZIP, 200 Mo au plus), dossier de travail privé par dépôt, ZIP reproductibles (entrées triées, dates fixes), formulaire de branchement converti en `ConnectionsConfig`, formulaire de réconciliation converti en `ReconcileConfig`. Copie de l'export dans un Volume si `DKU2DBX_EXPORTS_VOLUME` est renseigné ; endpoint LLM par `DKU2DBX_LLM_ENDPOINT` (H-61).
+- `app/app.py` : six pages (déposer, analyser, simplifier, brancher, migrer, réconcilier), avec métriques, rapports Markdown, éditeurs de tableau et boutons de téléchargement.
+- `app/app.yaml`, `app/requirements.txt` (dku2dbx à une révision fixe du dépôt) et `app/databricks.yml` (bundle de l'app, cible `dev`).
+- `connect.resolve.sources` rendue publique : l'app et le branchement partagent la définition d'une source.
+- Dépendance optionnelle `app` (streamlit) ; streamlit en dépendance de développement pour les tests.
+
+### Résultats
+
+- `uv run pytest` : **514 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critère de fin « le parcours complet fonctionne sur `DEMO_SIMPLE` » : vérifié en local, par le module et par les pages elles-mêmes (`streamlit.testing` AppTest : dépôt, analyse, simplification, branchement, génération, réconciliation, export illisible). L'app démarre avec `streamlit run`.
+- Critère « l'app est déployée en `dev` via le bundle du projet » : **non atteint**, faute de workspace avec les Databricks Apps activées (H-61 à vérifier).
+
+### Points ouverts
+
+- Déployer en `dev` dès qu'un workspace est disponible (`databricks bundle deploy` dans `app/`), et vérifier l'identité utilisée (service principal de l'app ou identité de l'utilisateur).
+- Créer le Volume à accès restreint pour les exports.

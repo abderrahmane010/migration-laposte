@@ -1,0 +1,16 @@
+# Bundle de l'app dku2dbx (phase 10) : `databricks bundle deploy` depuis ce dossier,
+# puis `databricks bundle run dku2dbx_app` pour la démarrer.
+bundle:
+  name: dku2dbx_app
+
+resources:
+  apps:
+    dku2dbx_app:
+      name: dku2dbx
+      description: "Migration Dataiku DSS -> Databricks : analyser, brancher, migrer, réconcilier"
+      source_code_path: .
+
+targets:
+  dev:
+    mode: development
+    default: true

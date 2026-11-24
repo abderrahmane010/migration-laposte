@@ -77,7 +77,7 @@ class Branching(_Model):
     """Branched sources partitioned in Dataiku: their table needs the date column (H-53)."""
 
 
-def _sources(project: Project) -> list[str]:
+def sources(project: Project) -> list[str]:
     produced = {o.ref for r in project.recipes for o in r.outputs}
     read = {i.ref for r in project.recipes for i in r.inputs}
     saved = {m.id for m in project.saved_models}
@@ -112,7 +112,7 @@ def _table_name(rule: ConnectionRule, dataset: Dataset) -> tuple[str | None, str
 def branch_sources(project: Project, config: ConnectionsConfig, source_file: str) -> Branching:
     result = Branching(project=project.key, source_file=source_file)
     datasets = {d.name: d for d in project.datasets}
-    for name in _sources(project):
+    for name in sources(project):
         dataset = datasets.get(name)
         if dataset is None:  # PROJECT.dataset shared by another project
             owner, _, local = name.rpartition(".")

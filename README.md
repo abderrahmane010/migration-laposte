@@ -82,6 +82,17 @@ Une option non traduite n'est jamais devinée ni ignorée : la recette est list�
 
 Statut par table : `IDENTIQUE`, `ÉCART TOLÉRÉ` (dans les tolérances, ou élargissement de type sans perte) ou `ÉCART`. Clés et tolérances : `config/reconcile.local.yaml` (ignoré par Git), sinon `config/reconcile.yaml`.
 
+## Interface : Databricks App (phase 10)
+
+Le parcours complet dans un navigateur : déposer un export ZIP → Analyser → Simplifier → Brancher (formulaire par connexion) → Migrer (bundle et résidu à **télécharger**, le déploiement reste un geste humain après relecture) → Réconcilier (clé et tolérances par table, notebook à télécharger). L'app appelle exactement le code de la CLI (`src/dku2dbx/webapp/session.py`).
+
+```bash
+uv run streamlit run app/app.py --server.address localhost   # en local : http://localhost:8501
+cd app && databricks bundle deploy && databricks bundle run dku2dbx_app   # sur un workspace
+```
+
+`app/app.yaml` déclare deux variables : `DKU2DBX_EXPORTS_VOLUME` (Volume Unity Catalog à accès restreint où copier les exports) et `DKU2DBX_LLM_ENDPOINT` (endpoint Model Serving validé pour le résidu). Vides par défaut.
+
 ## Clé d'API Dataiku
 
 La clé n'est jamais écrite dans le code ni dans Git (règle 4 de `CLAUDE.md`). Elle vit dans un fichier `.env` local, ignoré par Git. Un hook `pre-commit` refuse en plus tout commit d'un fichier `.env`.

@@ -1,0 +1,10 @@
+# Databricks App (phase 10) : commande de lancement et variables d'environnement.
+command: ["streamlit", "run", "app.py"]
+env:
+  # Volume Unity Catalog À ACCÈS RESTREINT où copier les exports déposés
+  # (/Volumes/<catalogue>/<schéma>/<volume>) ; vide : les exports restent en mémoire.
+  - name: DKU2DBX_EXPORTS_VOLUME
+    value: ""
+  # Endpoint Model Serving validé par la sécurité pour le résidu ; vide : LLM désactivé.
+  - name: DKU2DBX_LLM_ENDPOINT
+    value: ""

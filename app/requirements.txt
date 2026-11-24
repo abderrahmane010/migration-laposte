@@ -1,0 +1,6 @@
+# Dépendances de la Databricks App (phase 10), installées au déploiement.
+# dku2dbx est pris dans le dépôt Git public, à une révision fixe (sortie reproductible).
+streamlit>=1.40
+pandas>=2.2,<3
+databricks-sdk>=0.40
+dku2dbx @ git+https://github.com/abderrahmane010/migration-laposte.git@REVISION
