@@ -170,8 +170,9 @@ def classify(project: Project) -> list[RecipeClassification]:
                 category=rcp.category.value,
                 target_class=target,
                 planned_phase=phase if target is not TargetClass.MANUAL else None,
+                # A code recipe with a deterministic rewrite (phase 8) stays to review.
                 translator_available=(
-                    target is TargetClass.AUTO and rcp.type in AVAILABLE_TRANSLATORS
+                    target is not TargetClass.MANUAL and rcp.type in AVAILABLE_TRANSLATORS
                 ),
                 reasons=reasons,
             )

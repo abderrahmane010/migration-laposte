@@ -23,6 +23,8 @@ class Translation(_Model):
     outputs: list[TranslatedOutput]
     warnings: list[str] = Field(default_factory=list)
     """Semantic differences the reviewer must know (never silent)."""
+    review: bool = False
+    """Deterministic rewrite of code (phase 8): to be reviewed before production."""
 
 
 class Unsupported(_Model):

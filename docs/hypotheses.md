@@ -117,3 +117,9 @@ Le projet a été lu via l'API par le pont `dku2dbx_bridge` (dépôt `agentic_pr
 | ID | Hypothèse | Source | Fixture / test | Statut |
 |---|---|---|---|---|
 | H-55 | Une source est un dataset lu et produit par aucune recette du projet. Elle se branche par sa connexion Dataiku (`params.connection`) : catalogue du mapping, schéma du mapping sinon schéma Dataiku résolu, nom de table par modèle (`{table}` = table Dataiku résolue, ou nom du dataset si absente, `{dataset}`, `{schema}`). Les datasets `UploadedFiles` et `Inline` vont dans un Volume (à faire à la main) ; un dataset partagé `PROJET.dataset` se branche via `shared_projects` | supposée | `tests/test_connect.py` | SUPPOSÉE |
+
+### Hypothèses ajoutées par la phase 8 (code et résidu)
+
+| ID | Hypothèse | Source | Fixture / test | Statut |
+|---|---|---|---|---|
+| H-56 | Une recette `sql_query` contient une seule requête dans son payload texte. Dataiku remplace les `${variables}` dans le texte, exécute la requête sur la base de ses entrées et écrit le résultat dans son unique sortie. Les tables lues sont les tables physiques des entrées (`params.table`, `params.schema`). Le dialecte source est déduit du type des datasets d'entrée (PostgreSQL → `postgres`, Oracle → `oracle`…). La traduction est déterministe (sqlglot), mais toujours « à relire » | supposée (fixtures) | `tests/test_translate_sql_recipe.py` | SUPPOSÉE |

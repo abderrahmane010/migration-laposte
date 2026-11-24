@@ -35,7 +35,7 @@ from dku2dbx.generate.scenarios import ScenarioJob, scenario_jobs
 from dku2dbx.generate.templating import render
 from dku2dbx.model.ir import Project
 from dku2dbx.simplify.flow import SimplifiedFlow, Step, simplify_flow
-from dku2dbx.translate.engine import payload_sha256, translate_project
+from dku2dbx.translate.engine import TO_REVIEW, payload_sha256, translate_project
 from dku2dbx.translate.model import ProjectTranslation, TranslatedOutput
 from dku2dbx.translate.prepare.formula import JobParameter
 from dku2dbx.translate.sql import DIALECT, column, table
@@ -228,6 +228,8 @@ class _StepBuilder:
         lines += [f"Inlined as CTE: {', '.join(step.inlined)}"] if step.inlined else []
         for name in step.recipes:
             if name in self.translated:
+                if self.translated[name].review:
+                    lines.append(f"{TO_REVIEW} ({name})")
                 lines += [
                     f"WARNING ({name}): {w}"
                     for w in self.translated[name].warnings

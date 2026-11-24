@@ -12,6 +12,8 @@ from dku2dbx.model.ir import Project, Recipe
 from dku2dbx.translate.model import ProjectTranslation, TranslatedOutput, Translation, Unsupported
 from dku2dbx.translate.registry import TRANSLATORS
 
+TO_REVIEW = "TO REVIEW: deterministic rewrite of Dataiku code, check it before production"
+
 
 def translate_project(project: Project) -> ProjectTranslation:
     result = ProjectTranslation(project=project.key)
@@ -53,6 +55,8 @@ def header(project: Project, recipe: Recipe, tr: Translation, out: TranslatedOut
         f"-- Recipe JSON SHA-256: {recipe.source_sha256}",
         f"-- Payload SHA-256: {payload_sha256(recipe)}",
     ]
+    if tr.review:
+        lines.append(f"-- {TO_REVIEW}")
     lines += [f"-- WARNING: {w}" for w in tr.warnings]
     return "\n".join(line.replace("\n", " ") for line in lines)
 
