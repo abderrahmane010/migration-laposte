@@ -3,4 +3,4 @@
 streamlit>=1.40
 pandas>=2.2,<3
 databricks-sdk>=0.40
-dku2dbx @ git+https://github.com/abderrahmane010/migration-laposte.git@695251e5fc0059c7a4a34e3da2e527d8c1f963ad
+dku2dbx @ git+https://github.com/abderrahmane010/migration-laposte.git@fe1dd4113d516390f7525b615dace89a93cf72db
