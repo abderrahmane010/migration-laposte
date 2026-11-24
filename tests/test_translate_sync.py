@@ -21,7 +21,7 @@ from dku2dbx.translate.engine import (
     translate_project,
     write_translation,
 )
-from dku2dbx.translate.registry import TRANSLATORS
+from dku2dbx.translate.registry import REWRITERS, TRANSLATORS
 from tests.fixtures import make_fixture as mf
 from tests.fixtures.make_fixture import DEFAULT_OUT_DIR
 
@@ -176,6 +176,7 @@ def test_every_recipe_is_accounted_for() -> None:
     result = translate_project(project)
     names = (
         {t.recipe for t in result.translated}
+        | {r.recipe for r in result.rewritten}
         | {u.recipe for u in result.unsupported}
         | set(result.without_translator)
     )
@@ -188,7 +189,8 @@ def test_written_files_are_reproducible(tmp_path: Path) -> None:
     first = write_translation(project, result, tmp_path / "a")
     second = write_translation(project, result, tmp_path / "b")
     expected = sorted(sql_file_name(t, o) for t in result.translated for o in t.outputs)
-    assert [p.name for p in first] == [*expected, "translate_report.json"]
+    rewritten = [f"{r.recipe}.py" for r in result.rewritten]
+    assert [p.name for p in first] == [*rewritten, *expected, "translate_report.json"]
     for a, b in zip(first, second, strict=True):
         assert a.read_bytes() == b.read_bytes()
     sync = tmp_path / "a" / "DEMO_COMPLEXE" / "sql" / "sync_events.sql"
@@ -202,6 +204,7 @@ def test_cli_translate(tmp_path: Path) -> None:
     expected = translate_project(fixture("DEMO_COMPLEXE"))
     assert (
         f"{len(expected.translated)} recette(s) traduite(s), "
+        f"{len(expected.rewritten)} recette(s) Python réécrite(s) (à relire), "
         f"{len(expected.unsupported)} non prise(s) en charge"
     ) in result.output
     assert (tmp_path / "DEMO_COMPLEXE" / "sql" / "sync_events.sql").is_file()
@@ -211,8 +214,9 @@ def test_classification_sees_the_new_translators() -> None:
     project = fixture("DEMO_COMPLEXE")
     available = {c.name for c in classify(project) if c.translator_available}
     assert "sync_events" in available
+    handled = {*TRANSLATORS, *REWRITERS}
     assert available == {
-        r.name for r in project.recipes if r.type in TRANSLATORS and r.name != "prepare_depots"
+        r.name for r in project.recipes if r.type in handled and r.name != "prepare_depots"
     }
 
 

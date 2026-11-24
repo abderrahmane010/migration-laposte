@@ -1,0 +1,25 @@
+# -*- coding: utf-8 -*-
+# Synthetic Python recipe (fixture). Exercises the usual dataiku idioms.
+# dku2dbx: import dataiku (removed)
+import pandas as pd
+
+def _dku_custom_variables():
+    """dataiku.get_custom_variables(): project variables, as text."""
+    return {
+        "score_threshold": dbutils.widgets.get("dku_score_threshold"),
+        "start_date": dbutils.widgets.get("dku_start_date"),
+    }
+
+
+variables = _dku_custom_variables()
+threshold = float(variables.get("score_threshold", "0.5"))
+
+deliveries = spark.table("`delivered_enriched`").toPandas()
+stats = spark.table("`DEMO_SIMPLE.customer_stats`").toPandas()
+
+df = deliveries.merge(stats, on="customer_id", how="left")
+df["score"] = (df["amount_eur_sum"].fillna(0) / (df["delay_minutes"].fillna(0) + 1)).round(3)
+df["is_good"] = df["score"] >= threshold
+
+# dku2dbx: out = dataiku.Dataset('customer_scores') (rewritten where used)
+spark.createDataFrame(df[["customer_id", "score", "is_good"]]).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable("`customer_scores`")

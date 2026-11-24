@@ -27,6 +27,17 @@ class Translation(_Model):
     """Deterministic rewrite of code (phase 8): to be reviewed before production."""
 
 
+class CodeRewrite(_Model):
+    """A code recipe whose dataiku idioms are rewritten (phase 8): always to review."""
+
+    recipe: str
+    type: str
+    code: str
+    reads: list[str] = Field(default_factory=list)
+    writes: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class Unsupported(_Model):
     recipe: str
     type: str
@@ -38,6 +49,8 @@ class Unsupported(_Model):
 class ProjectTranslation(_Model):
     project: str
     translated: list[Translation] = Field(default_factory=list)
+    rewritten: list[CodeRewrite] = Field(default_factory=list)
+    """Python recipes rewritten into notebooks (phase 8)."""
     unsupported: list[Unsupported] = Field(default_factory=list)
     """Recipes with a translator that hit a construct it does not handle."""
     without_translator: dict[str, str] = Field(default_factory=dict)

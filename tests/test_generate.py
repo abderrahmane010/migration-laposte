@@ -126,7 +126,7 @@ def test_untranslated_steps_fail_explicitly() -> None:
     bundle = generate_job_bundle(fixture("DEMO_COMPLEXE"))
     manual = {g.step.id: g for g in bundle.steps if not g.translated}
     recipes = {r for g in manual.values() for r in g.step.recipes}
-    assert recipes == {"prepare_depots", "plugin_geocode", "python_scoring"}
+    assert recipes == {"prepare_depots", "plugin_geocode"}
     for step_id in manual:
         assert "SELECT raise_error(" in bundle.files[f"src/{step_id}.sql"]
         assert "CREATE OR REPLACE TABLE" not in bundle.files[f"src/{step_id}.sql"]
@@ -202,7 +202,7 @@ def test_cli_generate(tmp_path: Path) -> None:
     export = str(DEFAULT_OUT_DIR / "DEMO_COMPLEXE.zip")
     result = CliRunner().invoke(app, ["generate", export, "--out", str(tmp_path / "b")])
     assert result.exit_code == 0, result.output
-    assert "dont 3 à migrer à la main" in result.output
+    assert "dont 2 à migrer à la main" in result.output
     assert (tmp_path / "b" / "databricks.yml").is_file()
     result = CliRunner().invoke(
         app, ["generate", export, "--target", "pipeline", "--out", str(tmp_path / "p")]

@@ -183,7 +183,7 @@ def translate(
     ),
     out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
 ) -> None:
-    """Migrer : traduire les recettes visuelles en Spark SQL, un fichier .sql par sortie."""
+    """Migrer : traduire les recettes en Spark SQL (.sql par sortie) ou en Python (.py)."""
     try:
         project = ZipExportReader(export).read()
     except ExportReadError as exc:
@@ -193,12 +193,16 @@ def translate(
     write_translation(project, result, out)
     typer.echo(
         f"Projet {project.key} : {len(result.translated)} recette(s) traduite(s), "
+        f"{len(result.rewritten)} recette(s) Python réécrite(s) (à relire), "
         f"{len(result.unsupported)} non prise(s) en charge, "
         f"{len(result.without_translator)} sans traducteur pour l'instant."
     )
     for item in result.unsupported:
         typer.echo(f"  - {item.recipe} ({item.type}) : {item.element} — {item.detail}")
-    typer.echo(f"SQL dans {out / project.key / 'sql'}, rapport dans translate_report.json")
+    typer.echo(
+        f"SQL dans {out / project.key / 'sql'}, Python dans {out / project.key / 'python'}, "
+        "rapport dans translate_report.json"
+    )
 
 
 @app.command()

@@ -13,7 +13,7 @@ HAS_JAVA = shutil.which("java") is not None or bool(os.environ.get("JAVA_HOME"))
 
 
 @pytest.fixture(scope="session")
-def spark() -> Iterator[SparkSession]:
+def spark(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SparkSession]:
     if not HAS_JAVA:
         pytest.skip("Java (JVM 17+) absente : PySpark local indisponible")
     session = (
@@ -22,6 +22,8 @@ def spark() -> Iterator[SparkSession]:
         .config("spark.ui.enabled", "false")
         .config("spark.sql.shuffle.partitions", "1")
         .config("spark.sql.session.timeZone", "UTC")
+        # saveAsTable (rewritten Python recipes) writes here, never in the repository.
+        .config("spark.sql.warehouse.dir", str(tmp_path_factory.mktemp("warehouse")))
         .getOrCreate()
     )
     yield session

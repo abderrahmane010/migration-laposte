@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from dku2dbx.model.ir import Project, Recipe
+from dku2dbx.translate.code.python_recipe import rewrite_python
 from dku2dbx.translate.code.sql_recipe import translate_sql_query
-from dku2dbx.translate.model import Translation
+from dku2dbx.translate.model import CodeRewrite, Translation
 from dku2dbx.translate.prepare.recipe import translate_prepare
 from dku2dbx.translate.visual.group import translate_grouping
 from dku2dbx.translate.visual.join import translate_join
@@ -18,6 +19,7 @@ from dku2dbx.translate.visual.topn import translate_topn
 from dku2dbx.translate.visual.window import translate_window
 
 Translator = Callable[[Project, Recipe], Translation]
+Rewriter = Callable[[Project, Recipe], CodeRewrite]
 
 # Recipe type -> translator. Phase 3 adds them in the ROADMAP order; the phase 2
 # classification reads this registry ("translator available").
@@ -38,3 +40,6 @@ TRANSLATORS: dict[str, Translator] = {
     # Phase 8: SQL code recipes, transpiled deterministically, always to review.
     "sql_query": translate_sql_query,
 }
+
+# Phase 8: code recipes rewritten into notebooks (not SQL), always to review.
+REWRITERS: dict[str, Rewriter] = {"python": rewrite_python}

@@ -19,6 +19,7 @@ Known semantic traps (pieges_semantiques.md), each tested on PySpark:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -89,6 +90,11 @@ class Typed:
 
     sql: exp.Expr
     kind: str
+
+
+def parameter_name(variable: str) -> str:
+    """Job parameter of a project variable: ``dku_<name>`` (phase 6)."""
+    return "dku_" + re.sub(r"[^A-Za-z0-9_]+", "_", variable)
 
 
 @dataclass(frozen=True)

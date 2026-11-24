@@ -14,6 +14,7 @@ A step whose recipes are not all translated becomes a notebook that fails with
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,14 +36,17 @@ from dku2dbx.generate.scenarios import ScenarioJob, scenario_jobs
 from dku2dbx.generate.templating import render
 from dku2dbx.model.ir import Project
 from dku2dbx.simplify.flow import SimplifiedFlow, Step, simplify_flow
+from dku2dbx.translate.code.python_recipe import rewrite_python
 from dku2dbx.translate.engine import TO_REVIEW, payload_sha256, translate_project
 from dku2dbx.translate.model import ProjectTranslation, TranslatedOutput
-from dku2dbx.translate.prepare.formula import JobParameter
+from dku2dbx.translate.prepare.formula import JobParameter, parameter_name
 from dku2dbx.translate.sql import DIALECT, column, table
 from dku2dbx.translate.visual.types import spark_type
 
 NOTEBOOK_HEADER = "-- Databricks notebook source"
 CELL = "\n\n-- COMMAND ----------\n\n"
+PY_NOTEBOOK_HEADER = "# Databricks notebook source"
+PY_CELL = "\n\n# COMMAND ----------\n\n"
 SCHEMA_TASK = "prepare_schema"
 INGEST_PREFIX = "ingest_"
 
@@ -58,6 +62,13 @@ class GeneratedStep:
     translated: bool
     reasons: list[str] = field(default_factory=list)
     unmapped_checks: list[str] = field(default_factory=list)
+    path: str = ""
+    """Notebook in the bundle: src/<step>.sql, or src/<step>.py for Python (phase 8)."""
+    to_review: list[str] = field(default_factory=list)
+    """Recipes whose code was rewritten deterministically: review before production."""
+
+    def __post_init__(self) -> None:
+        self.path = self.path or f"src/{self.step.id}.sql"
 
 
 @dataclass
@@ -100,6 +111,7 @@ class _StepBuilder:
         self.branched = dict(branching.resolved) if branching else {}
         self.translated = {t.recipe: t for t in result.translated}
         self.unsupported = {u.recipe: u for u in result.unsupported}
+        self.rewritten = {r.recipe for r in result.rewritten}
         self.outputs: dict[str, tuple[str, TranslatedOutput]] = {
             o.dataset: (t.recipe, o) for t in result.translated for o in t.outputs
         }
@@ -112,7 +124,7 @@ class _StepBuilder:
             if name in self.unsupported:
                 u = self.unsupported[name]
                 reasons.append(f"{name} ({u.type}) : {u.element} — {u.detail}")
-            elif name not in self.translated:
+            elif name not in self.translated and name not in self.rewritten:
                 reasons.append(f"{name} ({self.project.recipe(name).type}) : pas de traducteur")
         return reasons
 
@@ -239,6 +251,8 @@ class _StepBuilder:
 
     def build(self, step: Step) -> GeneratedStep:
         reasons = self._reasons(step)
+        if not reasons and self.rewritten & set(step.recipes):
+            return self._python(step)
         cells = [NOTEBOOK_HEADER + "\n" + _comment(self.header(step))]
         cells += ["USE CATALOG IDENTIFIER(:catalog);", "USE SCHEMA IDENTIFIER(:schema);"]
         if reasons:
@@ -249,7 +263,45 @@ class _StepBuilder:
         except UnsupportedConstruct as exc:  # e.g. a column type an append table needs
             return self._stub(step, cells, [f"{exc.recipe} : {exc.construct} — {exc.detail}"])
         checks = self.unmapped_checks[before:]
-        return GeneratedStep(step, CELL.join(cells) + "\n", True, [], checks)
+        review = [r for r in step.recipes if r in self.translated and self.translated[r].review]
+        return GeneratedStep(step, CELL.join(cells) + "\n", True, [], checks, to_review=review)
+
+    def _python(self, step: Step) -> GeneratedStep:
+        """A rewritten Python recipe (alone in its step: code recipes are boundaries)."""
+        [name] = step.recipes
+        recipe = self.project.recipe(name)
+        try:
+            rewrite = rewrite_python(self.project, recipe, self.branched)
+        except UnsupportedConstruct as exc:
+            cells = [NOTEBOOK_HEADER + "\n" + _comment(self.header(step))]
+            return self._stub(step, cells, [f"{exc.recipe} : {exc.construct} — {exc.detail}"])
+        header = [
+            *self.header(step),
+            TO_REVIEW,
+            *(f"WARNING: {w}" for w in rewrite.warnings),
+        ]
+        cells = [
+            PY_NOTEBOOK_HEADER + "\n" + "\n".join(f"# {line}" for line in header),
+            "# Job parameters are notebook widgets (H-57): the target catalog and schema.\n"
+            'spark.catalog.setCurrentCatalog(dbutils.widgets.get("catalog"))\n'
+            'spark.catalog.setCurrentDatabase(dbutils.widgets.get("schema"))',
+            rewrite.code.rstrip(),
+        ]
+        before = len(self.unmapped_checks)
+        for dataset in step.outputs:
+            for check in self._checks(dataset):
+                sql = check.split("\n")[-1].removesuffix(";")
+                cells.append(f"spark.sql({json.dumps(sql, ensure_ascii=False)}).collect()")
+        checks = self.unmapped_checks[before:]
+        return GeneratedStep(
+            step,
+            PY_CELL.join(cells) + "\n",
+            True,
+            [],
+            checks,
+            path=f"src/{step.id}.py",
+            to_review=[name],
+        )
 
     def _writes(self, step: Step) -> list[str]:
         appends = {
@@ -329,6 +381,34 @@ def _ingest_tasks(project: Project, branching: Branching | None) -> dict[str, st
     return {name: f"ingest_{i:02d}" for i, name in enumerate(sorted(branching.unresolved), 1)}
 
 
+def _ingest_files(
+    ingest: dict[str, str], branching: Branching | None, header: str
+) -> dict[str, str]:
+    """Substitute ingestion notebooks: they fail until the source is branched (phase 7)."""
+    files = {}
+    for source, key in ingest.items():
+        reason = branching.unresolved[source] if branching else ""
+        message = f"dku2dbx: source {source} is not branched yet ({reason}): see a_brancher.md"
+        files[f"src/{key}.sql"] = (
+            CELL.join(
+                [
+                    NOTEBOOK_HEADER
+                    + "\n"
+                    + _comment(
+                        [
+                            header,
+                            f"Substitute ingestion of the source {source} (phase 7).",
+                            f"NOT BRANCHED: {reason}",
+                        ]
+                    ),
+                    f"SELECT raise_error({exp.Literal.string(message).sql(dialect=DIALECT)});",
+                ]
+            )
+            + "\n"
+        )
+    return files
+
+
 def _depends_on(
     flow: SimplifiedFlow, project: Project, ingest: dict[str, str] | None = None
 ) -> dict[str, list[str]]:
@@ -353,7 +433,7 @@ def _variables(project: Project) -> dict[str, JobParameter]:
     params: dict[str, JobParameter] = {}
     for name, value in sorted(project.variables.items()):
         if isinstance(value, (bool, int, float, str)):
-            param = "dku_" + re.sub(r"[^A-Za-z0-9_]+", "_", name)
+            param = parameter_name(name)
             if param in {p.name for p in params.values()}:
                 raise GenerateError(f"variables {name!r} and another give the parameter {param}")
             params[name] = JobParameter(param, value)
@@ -374,7 +454,8 @@ def _pipeline_steps(project: Project, flow: SimplifiedFlow, steps: list[Generate
     table or reading a partition, and every step downstream of one of those (the
     pipeline runs first, the SQL tasks after it).
     """
-    translated = {g.step.id for g in steps if g.translated}
+    # Python notebooks (phase 8) are job tasks, never pipeline views.
+    translated = {g.step.id for g in steps if g.translated and g.path.endswith(".sql")}
     writer = {out: s.id for s in flow.steps for out in s.outputs}
     out_of_pipeline: set[str] = set()
     for step in flow.steps:
@@ -434,9 +515,13 @@ def _job_tasks(
     deps: dict[str, list[str]],
     pipeline_ids: set[str],
     pipeline_key: str,
-    has_checks: bool,
+    paths: dict[str, str],
 ) -> list[dict[str, Any]]:
-    """Tasks of a job running ``step_ids``: schema, then pipeline (B), then SQL tasks."""
+    """Tasks of a job running ``step_ids``: schema, then pipeline (B), then notebook tasks.
+
+    ``paths``: notebook of each step, and of ``pipeline_checks`` when the views have checks.
+    """
+    has_checks = "pipeline_checks" in paths
     kept = set(step_ids)
     result_tasks: list[dict[str, Any]] = [
         {"key": SCHEMA_TASK, "depends_on": [], "notebook": "../src/00_prepare_schema.sql"}
@@ -480,7 +565,7 @@ def _job_tasks(
             {
                 "key": sid,
                 "depends_on": [*upstream_tasks, *notebook_deps],
-                "notebook": f"../src/{sid}.sql",
+                "notebook": f"../{paths[sid]}",
             }
         )
     return result_tasks
@@ -539,34 +624,17 @@ def generate_job_bundle(
             files["src/pipeline_checks.sql"] = _checks_notebook(header, pipeline_checks)
     for generated in steps:
         if generated.step.id not in pipeline_ids:
-            files[f"src/{generated.step.id}.sql"] = generated.notebook
+            files[generated.path] = generated.notebook
     ingest = _ingest_tasks(project, branching)
-    for source, key in ingest.items():
-        reason = branching.unresolved[source] if branching else ""
-        message = f"dku2dbx: source {source} is not branched yet ({reason}): see a_brancher.md"
-        files[f"src/{key}.sql"] = (
-            CELL.join(
-                [
-                    NOTEBOOK_HEADER
-                    + "\n"
-                    + _comment(
-                        [
-                            header,
-                            f"Substitute ingestion of the source {source} (phase 7).",
-                            f"NOT BRANCHED: {reason}",
-                        ]
-                    ),
-                    f"SELECT raise_error({exp.Literal.string(message).sql(dialect=DIALECT)});",
-                ]
-            )
-            + "\n"
-        )
+    files.update(_ingest_files(ingest, branching, header))
     deps = _depends_on(flow, project, ingest)
 
+    paths = {g.step.id: g.path for g in steps}
+    if "src/pipeline_checks.sql" in files:
+        paths["pipeline_checks"] = "src/pipeline_checks.sql"
+
     def tasks(step_ids: list[str]) -> list[dict[str, Any]]:
-        return _job_tasks(
-            step_ids, deps, pipeline_ids, pipeline_key, "src/pipeline_checks.sql" in files
-        )
+        return _job_tasks(step_ids, deps, pipeline_ids, pipeline_key, paths)
 
     scenarios = scenario_jobs(project, flow, name)
     jobs: list[dict[str, Any]] = [
@@ -656,7 +724,11 @@ def generate_job_bundle(
 
 def write_bundle(bundle: Bundle, out: Path) -> list[Path]:
     """Write the bundle under ``out`` (stale generated files are removed first)."""
-    stale_files = [*sorted(out.glob("src/*.sql")), *sorted(out.glob("resources/*.yml"))]
+    stale_files = [
+        *sorted(out.glob("src/*.sql")),
+        *sorted(out.glob("src/*.py")),
+        *sorted(out.glob("resources/*.yml")),
+    ]
     for stale in stale_files:
         stale.unlink()
     written = []
@@ -687,7 +759,8 @@ def generation_report(
         "## Synthèse",
         "",
         f"- Étapes : {len(bundle.steps)}, dont **{len(manual_steps)} à migrer à la main** "
-        "(notebook qui échoue explicitement)",
+        "(notebook qui échoue explicitement)"
+        + f" et {sum(bool(g.to_review) for g in bundle.steps)} réécrite(s) à relire",
         f"- Jobs : 1 flux complet (sans planification) + "
         f"{sum(not j.manual for j in bundle.scenarios)} scénario(s)",
         f"- Paramètres issus des variables Dataiku : {len(params)}",
@@ -716,6 +789,11 @@ def generation_report(
         "",
     ]
     lines += [f"- {g.step.id} : {'; '.join(g.reasons)}" for g in manual_steps] or ["(aucune)"]
+    review = [g for g in bundle.steps if g.to_review]
+    lines += ["", "## Code réécrit à relire (phase 8)", ""]
+    lines += [f"- {g.step.id} (`{g.path}`) : {', '.join(g.to_review)}" for g in review] or [
+        "(aucun)"
+    ]
     lines += ["", "## Sources (phase 7)", ""]
     if bundle.branching is None:
         lines.append("Branchement non demandé : les sources gardent leur nom Dataiku.")
