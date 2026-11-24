@@ -340,3 +340,7 @@ Phase 6 validée par le responsable le 2026-11-24. Projet réel : 44 étapes, do
 
 - Vérification Unity Catalog et ingestion réelle des sources : à faire avec un workspace (le chantier d'ingestion HDFS → Databricks reste hors de `dku2dbx`).
 - Les sources partitionnées devront avoir leur colonne de date (H-53).
+- Projet réel : 2 sources, toutes deux à brancher. `join_dataset` est un dataset Inline, à recréer en table de référence. `out_s0` est un fichier CSV dans HDFS (connexion `ti-dataiku`), qui n'est synchronisé avec aucun metastore : il faut le copier dans un Volume, le charger en table, puis déclarer son catalogue et son schéma dans le mapping local. Ces noms seront choisis avec l'équipe plateforme.
+- Amélioration possible (non faite) : reconnaître les datasets fichiers HDFS pour afficher une raison plus précise.
+
+Phase 7 validée par le responsable le 2026-11-24 (406 tests passés).
