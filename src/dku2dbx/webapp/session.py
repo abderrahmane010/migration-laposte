@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
+import tempfile
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -167,22 +169,37 @@ def zip_directory(root: Path) -> bytes:
     return buffer.getvalue()
 
 
+def _run_dir(session: Session, name: str) -> Path:
+    """A fresh directory per run: two runs at once (a double click: Streamlit reruns the
+    script concurrently) never delete or zip each other's files."""
+    session.workdir.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f"{name}-", dir=session.workdir))
+
+
 def migrate(session: Session, target: str = "job", config: LLMConfig | None = None) -> Migration:
     """Generate the bundle and prepare (or run) the LLM residue."""
-    out = session.workdir / "migration"
     bundle = generate_job_bundle(session.project, target=target, branching=session.branching)
-    write_bundle(bundle, out / "bundle")
     llm = config or llm_config()
-    residue = run_residue(
-        session.project, llm, out / "residue", client=make_client(llm), branching=session.branching
-    )
-    write_residue_report(residue, out / "residue")
+    out = _run_dir(session, "migration")
+    try:
+        write_bundle(bundle, out / "bundle")
+        residue = run_residue(
+            session.project,
+            llm,
+            out / "residue",
+            client=make_client(llm),
+            branching=session.branching,
+        )
+        write_residue_report(residue, out / "residue")
+        archive = zip_directory(out)
+    finally:
+        shutil.rmtree(out, ignore_errors=True)  # everything is in the archive
     return Migration(
         bundle=bundle,
         residue=residue,
         report=bundle.files["GENERATION.md"],
         residue_report=residue_markdown(residue),
-        archive=zip_directory(out),
+        archive=archive,
     )
 
 
@@ -216,14 +233,18 @@ def reconcile(session: Session, rules: list[dict[str, Any]]) -> ReconciliationFi
     }
     config = ReconcileConfig.model_validate({"tables": tables})
     plan = plan_reconciliation(session.project, config, "formulaire de l'app")
-    out = session.workdir / "reconcile"
-    write_reconciliation(plan, out)
-    return ReconciliationFiles(
-        plan=plan,
-        notebook=(out / "reconcile.py").read_text(encoding="utf-8"),
-        plan_report=(out / "RECONCILIATION.md").read_text(encoding="utf-8"),
-        archive=zip_directory(out),
-    )
+    out = _run_dir(session, "reconcile")
+    try:
+        write_reconciliation(plan, out)
+        files = ReconciliationFiles(
+            plan=plan,
+            notebook=(out / "reconcile.py").read_text(encoding="utf-8"),
+            plan_report=(out / "RECONCILIATION.md").read_text(encoding="utf-8"),
+            archive=zip_directory(out),
+        )
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+    return files
 
 
 def reconcile_tables(session: Session) -> list[str]:

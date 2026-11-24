@@ -203,3 +203,17 @@ def test_app_shows_the_points_to_examine() -> None:
     assert at.metric[3].value == "1"
     assert at.subheader[0].value == "Points à examiner"
     assert list(at.dataframe[0].value["type"]) == ["UNKNOWN_RECIPE_TYPE"]
+
+
+def test_concurrent_runs_do_not_collide(tmp_path: Path) -> None:
+    """A double click runs migrate twice at once: each run has its own directory."""
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    session = journey.open_export(COMPLEX, "DEMO_COMPLEXE.zip", tmp_path)
+    expected = journey.migrate(session).archive
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        archives = list(pool.map(lambda _: journey.migrate(session).archive, range(8)))
+        plans = list(pool.map(lambda _: journey.reconcile(session, []).archive, range(4)))
+    assert all(a == expected for a in archives)  # same bytes, no missing file
+    assert len(set(plans)) == 1
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["export.zip"]  # runs cleaned up
