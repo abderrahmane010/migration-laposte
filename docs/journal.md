@@ -480,3 +480,9 @@ Phase 9 validée par le responsable le 2026-11-24 (505 tests passés). Suite pr�
 - Les copies `HISTORIQUE` (datasets produits) sont générées dans `donnees/notebooks/`, à lancer une fois à la main avant le premier run du job : elles ne sont pas encore des tâches du bundle.
 - Les sources fichiers ne peuvent pas encore être référencées sur place (table externe) : elles sont copiées.
 - L'application (phase 10) n'expose pas encore l'étape « données ».
+
+Phase 11 validée par le responsable le 2026-11-25 (554 tests passés). Limitations conservées explicitement (reprises dans la ROADMAP) :
+- tests réels de Lakehouse Federation et de Delta à faire sur un véritable workspace Databricks ;
+- noms de colonnes incompatibles avec Delta : à étendre aux tables générées par le bundle ;
+- copies d'historique : à intégrer aux tâches du bundle ;
+- lecture des fichiers sur place : à développer.

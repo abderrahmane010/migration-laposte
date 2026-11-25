@@ -277,6 +277,12 @@ Livrables : `out/<P>/donnees/` (rapport `donnees.md`, `donnees.json`, notebooks 
 
 Terminé quand : sur `DEMO_SIMPLE`, `DEMO_COMPLEXE` et l'export du tutoriel Dataiku Cloud, chaque dataset reçoit une décision et un statut Federation explicites ; les notebooks de copie s'exécutent deux fois sur PySpark local sans doublon ; la validation détecte un schéma, un type et une partition faux ; les étapes portent le nom de leur recette principale ; tests verts et `ruff` propre.
 
+**Phase 11 validée le 2026-11-25.** Limitations conservées explicitement, à traiter plus tard :
+- les tests réels de Lakehouse Federation et de Delta (propriétés, *column mapping*, droits) restent à faire sur un véritable workspace Databricks ;
+- la gestion des noms de colonnes incompatibles avec Delta doit être étendue aux tables générées par le bundle (phase 6) ;
+- les copies d'historique (`HISTORIQUE`) doivent être intégrées aux tâches du bundle ;
+- la lecture des fichiers sur place (table externe, sans copie) reste à développer.
+
 ---
 
 ## Phase 12 — Lecteur par API Dataiku
