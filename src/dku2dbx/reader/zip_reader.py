@@ -44,6 +44,7 @@ from dku2dbx.model.ir import (
     UnresolvedVariable,
     Zone,
 )
+from dku2dbx.reader.entries import EntrySource
 from dku2dbx.reader.known_types import (
     CODE_RECIPE_TYPES,
     DATASET_TYPES,
@@ -146,9 +147,9 @@ def _stem(rel: str) -> str:
 
 
 class _ProjectBuilder:
-    """Turns the entries of one export into a ``Project``."""
+    """Turns the entries of one export (ZIP or API, phase 12) into a ``Project``."""
 
-    def __init__(self, archive: _Archive, instance_variables: Mapping[str, Any] | None) -> None:
+    def __init__(self, archive: EntrySource, instance_variables: Mapping[str, Any] | None) -> None:
         self.ar = archive
         self.instance_variables = instance_variables
         self.issues: list[Issue] = []
@@ -640,6 +641,13 @@ class ZipExportReader:
             ),
             project=self.read(),
         )
+
+
+def build_project(
+    source: EntrySource, instance_variables: Mapping[str, Any] | None = None
+) -> Project:
+    """The project of a set of export entries (used by the API reader, phase 12)."""
+    return _ProjectBuilder(source, instance_variables).build()
 
 
 def read_export(path: Path, instance_variables: Mapping[str, Any] | None = None) -> Project:
