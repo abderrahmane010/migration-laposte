@@ -17,6 +17,7 @@ uv run dku2dbx simplify export.zip              # étapes après fusion -> out/<
 uv run dku2dbx translate export.zip             # recettes -> out/<projet>/sql/*.sql et python/*.py
 uv run dku2dbx residue export.zip               # résidu LLM -> out/<projet>/residue/RESIDU.md
 uv run dku2dbx connect export.zip               # sources -> Unity Catalog, out/<projet>/a_brancher.md
+uv run dku2dbx data export.zip                  # datasets : référencer, copier, recalculer -> out/<projet>/donnees/
 uv run dku2dbx generate export.zip              # bundle Databricks -> out/<projet>/bundle/
 uv run python tests/fixtures/make_fixture.py    # régénère les exports synthétiques
 uv run pytest                                   # tests
@@ -47,6 +48,25 @@ La classe d'une recette est sa **classe cible** prévue par la ROADMAP ; la colo
 Les vraies correspondances « connexion Dataiku → catalogue.schéma Unity Catalog » vont dans `config/connections.local.yaml`, **ignoré par Git** (modèle commenté et fictif : `config/connections.yaml`). On y met aussi les `shared_projects` (datasets partagés par d'autres projets) et les `instance_variables` (`${NODE_DC}`…).
 
 `dku2dbx connect <export.zip> [--connections fichier]` écrit `a_brancher.md` (sources branchées, sources à brancher avec leur raison, graphe où les sources à brancher sont en pointillés). `dku2dbx generate` lit le même mapping : les sources branchées sont lues en `catalog.schema.table`, chaque source non branchée reçoit une tâche d'ingestion qui échoue tant qu'elle n'est pas branchée. `--check-uc --profile X` vérifiera les tables dans Unity Catalog (SDK Databricks, optionnel).
+
+## Migrer les datasets (phase 11)
+
+L'export ZIP ne contient aucune donnée. `dku2dbx data <export.zip> [--data fichier] [--connections fichier]` décide, pour chaque dataset, comment ses données arrivent dans Unity Catalog, et écrit `out/<projet>/donnees/` : `donnees.md` (décision et raison par dataset), `donnees.json` (identifiants Dataiku d'origine) et un notebook de copie par dataset à copier.
+
+| Décision | Quand |
+|---|---|
+| `BRANCHÉ` | source déjà branchée (phase 7) |
+| `RÉFÉRENCE` | base lue sur place par Lakehouse Federation (connexion déclarée, `access: reference`) |
+| `COPIE` | base fédérée avec `access: copy`, fichiers d'une connexion dont la racine est déclarée, fichiers déposés dans Dataiku |
+| `RECALCUL` | dataset produit par une recette : le job le reconstruit |
+| `HISTORIQUE` | dataset produit dont l'historique ne se recalcule pas (append, partitions jamais recalculées) : copié une fois |
+| `REFUSÉ` | tout le reste, avec la raison (rien n'est supposé) |
+
+Les vraies valeurs vont dans `config/data.local.yaml`, **ignoré par Git** (modèle fictif : `config/data.yaml`). Une connexion n'est jamais supposée compatible avec Lakehouse Federation : il faut la déclarer `federation: available` avec son `foreign_catalog`.
+
+Les copies sont **idempotentes** : par défaut (`mode=skip`), une table déjà chargée n'est pas réécrite et seules les partitions absentes sont ajoutées ; `mode=replace` remplace la table, sur demande explicite. Après la copie, le notebook valide schéma, types, partitions, nombre de lignes et métadonnées. Chaque table garde ses identifiants Dataiku dans ses propriétés `dku2dbx.dataiku.*`. `--check-uc --profile X --principal <identité> --target catalog.schema` vérifie les droits par le SDK Databricks.
+
+`dku2dbx generate` lit la même configuration : une source non branchée dont la décision est `COPIE` reçoit son notebook de copie comme tâche d'ingestion, au lieu d'une tâche qui échoue. Les étapes du bundle portent le nom de leur recette principale (option B, décision du 2026-11-25).
 
 ## Générer le bundle (phase 6)
 

@@ -440,3 +440,43 @@ Phase 9 validée par le responsable le 2026-11-24 (505 tests passés). Suite pr�
 
 - Déployer en `dev` dès qu'un workspace est disponible (`databricks bundle deploy` dans `app/`), et vérifier l'identité utilisée (service principal de l'app ou identité de l'utilisateur).
 - Créer le Volume à accès restreint pour les exports.
+
+## Phase 11 — Migration des datasets et noms Dataiku (2026-11-25)
+
+### Décisions prises avec le responsable
+
+- Ajout des phases 11 (datasets), 12 (lecteur par API) et 13 (agent MCP, après le pilote) à la ROADMAP, dans cet ordre ; exclusions de la V1 inchangées.
+- **Option B** pour les étapes : la fusion est conservée, chaque étape porte le nom de sa recette principale.
+- Exigences : classification explicite de Lakehouse Federation (rien n'est supposé compatible), identifiants Dataiku d'origine toujours gardés dans les métadonnées, copies idempotentes, correspondance étape → recettes conservée, validation des schémas, types, partitions et permissions.
+
+### Réalisé
+
+- `simplify` : une étape prend le nom de sa dernière recette ; repli sur `step_NN`, avec la raison dans le rapport, si ce nom n'est pas une clé de tâche valide, est réservé par le bundle, ou entre en collision à la casse près (H-62). L'en-tête de chaque notebook liste toujours toutes les recettes de l'étape.
+- Lecteur : `format_type` et `format_params` des datasets de fichiers (H-63, constatés sur l'export d'essai).
+- `src/dku2dbx/data/` :
+  - `config.py` : `config/data.yaml` (modèle fictif) et `config/data.local.yaml` (ignoré par Git) ; une valeur fictive `[...]` n'est jamais utilisée.
+  - `plan.py` : une décision par dataset (`BRANCHÉ`, `RÉFÉRENCE`, `COPIE`, `RECALCUL`, `HISTORIQUE`, `REFUSÉ`) et un statut Federation (`COMPATIBLE`, `À CONFIRMER`, `NON DISPONIBLE`, `INCOMPATIBLE`), chacun avec sa raison (H-65 à H-67).
+  - `naming.py` : règles de noms Unity Catalog (H-64), collisions à la casse près, propriétés `dku2dbx.dataiku.*` (projet, dataset, type, connexion, schéma, table ou chemin, recette productrice, hash du JSON). Un nom inutilisable est refusé avec une proposition, jamais renommé en silence.
+  - `load.py` : moteur de copie autonome recopié dans chaque notebook ; modes `skip` (défaut : rien n'est réécrit, seules les partitions absentes sont ajoutées, comparaison null-safe) et `replace` (explicite) ; aucune perte de valeur silencieuse à la conversion (`try_cast` compté, CSV en `FAILFAST`) ; *column mapping* Delta pour les noms de colonnes à espace (H-69) ; validation schéma, types, partitions, lignes et métadonnées.
+  - `notebook.py` : notebooks de copie, `donnees.md`, `donnees.json`.
+  - `permissions.py` : vérification optionnelle des droits par le SDK (`--check-uc`, H-68).
+- CLI : `dku2dbx data` ; `dku2dbx generate --data` remplace la tâche d'ingestion qui échoue d'une source non branchée par sa copie quand la décision est `COPIE`.
+- Bundle : chaque table écrite (job SQL, vues du pipeline, notebooks Python) reçoit les propriétés `dku2dbx.dataiku.*`.
+
+### Résultats
+
+- `uv run pytest` : **554 tests passés** ; `ruff` et `mypy --strict` propres.
+- Critères de fin :
+  - `DEMO_SIMPLE`, `DEMO_COMPLEXE` et l'export du tutoriel Dataiku Cloud reçoivent chacun une décision et un statut Federation explicites par dataset. Sur le tutoriel, avec une configuration de test : 1 `COPIE` (fichiers déposés) et 3 `RECALCUL`.
+  - Les copies s'exécutent deux fois sur PySpark local sans doublon : table fédérée, partitions, fichiers CSV.
+  - La validation détecte une colonne absente ou en trop, un type faux, une partition manquante ou vide, un écart de lignes et des métadonnées absentes.
+  - Les étapes portent le nom de leur recette principale.
+- Le vrai export a révélé un piège : la colonne `Adj Close`, refusée par Delta sans *column mapping*. Il est traité pour les copies.
+
+### Points ouverts
+
+- **Aucun workspace** : Federation, propriétés Delta, *column mapping* et droits n'ont été vérifiés qu'en local ou avec un faux client (H-64, H-65, H-68, H-69).
+- Les noms de colonnes refusés par Delta restent à traiter dans les tables du bundle (phase 6).
+- Les copies `HISTORIQUE` (datasets produits) sont générées dans `donnees/notebooks/`, à lancer une fois à la main avant le premier run du job : elles ne sont pas encore des tâches du bundle.
+- Les sources fichiers ne peuvent pas encore être référencées sur place (table externe) : elles sont copiées.
+- L'application (phase 10) n'expose pas encore l'étape « données ».

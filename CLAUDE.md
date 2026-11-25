@@ -40,7 +40,8 @@ dku2dbx/
 ├── config/
 │   ├── scoring.yaml          # poids du score de complexité
 │   ├── connections.yaml      # connexion Dataiku -> catalog.schema Unity Catalog
-│   └── llm.yaml              # endpoint Model Serving validé (vide par défaut)
+│   ├── llm.yaml              # endpoint Model Serving validé (vide par défaut)
+│   └── data.yaml             # accès aux données des connexions (phase 11, exemples fictifs)
 ├── src/dku2dbx/
 │   ├── reader/               # lecture des exports ZIP -> modèle interne
 │   ├── model/                # modèle interne (IR) pydantic
@@ -53,6 +54,7 @@ dku2dbx/
 │   │   └── llm/              # résidu, sortie REVIEW_REQUIRED
 │   ├── generate/             # notebooks SQL, pipelines, jobs, bundle
 │   ├── connect/              # « brancher » : mapping des sources vers UC
+│   ├── data/                 # migration des datasets : décision, copies idempotentes (phase 11)
 │   ├── reconcile/            # harnais de comparaison des sorties
 │   └── cli.py
 ├── templates/                # jinja2 : bundle, jobs, notebooks
