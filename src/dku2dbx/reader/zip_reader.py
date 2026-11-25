@@ -188,20 +188,19 @@ class _ProjectBuilder:
         params: JsonDict = {}
         if self.ar.exists(CONFIG_DIR + "params.json"):
             params = _as_dict(self.ar.read_json(CONFIG_DIR + "params.json")[0])
+        # ASSUMPTION (H-02): a DSS 15 export names the project originalProjectKey in its
+        # manifest (params.json has no projectKey), seen on a Dataiku Cloud export.
         key = (
             _opt_str(params.get("projectKey"))
             or _opt_str(manifest.get("projectKey"))
+            or _opt_str(manifest.get("originalProjectKey"))
             or self.ar.path.stem
         )
+        self.variables = effective_variables(key, self._variables_json(), self.instance_variables)
 
-        variables_json: JsonDict | None = None
-        # ASSUMPTION (H-13): project variables in project_config/variables.json.
-        if self.ar.exists(CONFIG_DIR + "variables.json"):
-            variables_json = _as_dict(self.ar.read_json(CONFIG_DIR + "variables.json")[0])
-        self.variables = effective_variables(key, variables_json, self.instance_variables)
-
+        # ASSUMPTION (H-02): a plugin is {pluginId, version} in a DSS 15 export.
         declared_plugins = {
-            str(p.get("pluginId")): _opt_str(p.get("pluginVersion"))
+            str(p.get("pluginId")): _opt_str(p.get("pluginVersion")) or _opt_str(p.get("version"))
             for p in map(_as_dict, _as_list(manifest.get("exportedWithPlugins")))
             if p.get("pluginId")
         }
@@ -217,7 +216,8 @@ class _ProjectBuilder:
         project = Project(
             key=key,
             name=_opt_str(params.get("name")),
-            dss_version=_opt_str(manifest.get("dssVersion")),
+            dss_version=_opt_str(manifest.get("dssVersion"))
+            or _opt_str(manifest.get("generatedWithDSSVersion")),
             variables={k: v for k, v in self.variables.items() if k != "projectKey"},
             zones=sorted(zones, key=lambda z: z.id),
             datasets=sorted(datasets, key=lambda d: d.name),
@@ -249,6 +249,21 @@ class _ProjectBuilder:
             key=lambda i: (i.kind, i.object_kind, i.object_name, i.message),
         )
         return project
+
+    def _variables_json(self) -> JsonDict | None:
+        """Project variables as {"standard": {...}, "local": {...}}."""
+        # ASSUMPTION (H-13): either variables.json holds both blocks, or (DSS 15 export,
+        # seen on Dataiku Cloud) variables.json holds the standard variables and
+        # localvariables.json the local ones.
+        if not self.ar.exists(CONFIG_DIR + "variables.json"):
+            return None
+        data = _as_dict(self.ar.read_json(CONFIG_DIR + "variables.json")[0])
+        if {"standard", "local"} & set(data):
+            return data
+        local: JsonDict = {}
+        if self.ar.exists(CONFIG_DIR + "localvariables.json"):
+            local = _as_dict(self.ar.read_json(CONFIG_DIR + "localvariables.json")[0])
+        return {"standard": data, "local": local}
 
     def _json_entries(self, sub_dir: str) -> list[str]:
         return [rel for rel in self.ar.list_dir(CONFIG_DIR + sub_dir) if rel.endswith(".json")]

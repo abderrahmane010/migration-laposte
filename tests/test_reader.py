@@ -541,3 +541,29 @@ def test_zip_entries_are_not_extracted(tmp_path: Path) -> None:
     assert [p.name for p in tmp_path.iterdir()] == ["export.zip"]
     with zipfile.ZipFile(path) as zf:
         assert "export-manifest.json" in zf.namelist()
+
+
+def test_dss15_export_layout(tmp_path: Path) -> None:
+    """Seen on a Dataiku Cloud export (DSS 15.2.2): manifest keys and split variables."""
+    files = mf.build_demo_simple().files()
+    manifest = json.loads(files["export-manifest.json"])
+    manifest = {
+        "generatedWithDSSVersion": "15.2.2",
+        "originalProjectKey": "DEMO_SIMPLE",
+        "exportedWithPlugins": [{"pluginId": "geoadmin", "version": "2.3.1"}],
+        "foreignObjects": manifest["foreignObjects"],
+    }
+    files["export-manifest.json"] = json.dumps(manifest).encode()
+    params = json.loads(files["project_config/params.json"])
+    del params["projectKey"]
+    files["project_config/params.json"] = json.dumps(params).encode()
+    files["project_config/variables.json"] = json.dumps({"min_amount": 5, "x": "s"}).encode()
+    files["project_config/localvariables.json"] = json.dumps({"x": "local"}).encode()
+    path = write_zip(tmp_path, files)
+    path = path.rename(tmp_path / "renamed_by_hand.zip")  # the key no longer comes from the name
+    project = read_export(path)
+    assert project.key == "DEMO_SIMPLE"
+    assert project.dss_version == "15.2.2"
+    assert [(p.plugin_id, p.version) for p in project.plugins] == [("geoadmin", "2.3.1")]
+    assert project.variables == {"min_amount": 5, "x": "local"}  # local overrides standard
+    assert "project_config/localvariables.json" not in project.unparsed_entries
