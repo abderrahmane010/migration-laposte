@@ -25,6 +25,8 @@ def markdown(flow: SimplifiedFlow) -> str:
         "",
         "## Étapes",
         "",
+        "Chaque étape porte le nom de sa recette principale (la dernière exécutée).",
+        "",
         "| Étape | Recettes (ordre d'exécution) | Tables écrites | Tables en CTE |",
         "|---|---|---|---|",
     ]
@@ -33,6 +35,10 @@ def markdown(flow: SimplifiedFlow) -> str:
             f"| {step.id} | {', '.join(step.recipes)} | {', '.join(step.outputs) or '—'} "
             f"| {', '.join(step.inlined) or '—'} |"
         )
+    renamed = [s for s in flow.steps if s.name_note]
+    if renamed:
+        lines += ["", "## Étapes non nommées d'après leur recette principale", ""]
+        lines += [f"- {s.id} (recette {s.main_recipe}) : {s.name_note}" for s in renamed]
     lines += ["", "## Tables conservées et justification", "", "| Table | Raisons |", "|---|---|"]
     lines += [f"| {name} | {'; '.join(why)} |" for name, why in sorted(flow.kept.items())]
     lines += ["", "## Tables supprimées", ""]

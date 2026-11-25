@@ -63,7 +63,9 @@ def test_full_journey_on_demo_simple(tmp_path: Path) -> None:
     assert "residue/RESIDU.md" in names
     archive = zipfile.ZipFile(io.BytesIO(migration.archive))
     assert not any("/src/ingest" in n for n in names)  # every source is branched
-    assert "`cat`.`src`.`customers`" in archive.read("bundle/src/step_01.sql").decode()
+    assert (
+        "`cat`.`src`.`customers`" in archive.read("bundle/src/join_orders_customers.sql").decode()
+    )
     assert migration.archive == journey.migrate(session).archive  # reproducible
     tables = journey.reconcile_tables(session)
     assert tables == ["orders_enriched", "customer_stats", "orders_ranked"]

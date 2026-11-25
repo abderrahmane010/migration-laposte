@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -187,3 +188,49 @@ def test_cli_simplify(tmp_path: Path) -> None:
     assert (tmp_path / "DEMO_SIMPLE" / "simplify.json").is_file()
     result = CliRunner().invoke(app, ["simplify", export, "--no-fusion", "--out", str(tmp_path)])
     assert "5 recettes -> 5 étape(s), 0 table(s)" in result.output
+
+
+def test_steps_are_named_after_their_main_recipe() -> None:
+    """Option B (decision of 2026-11-25): the step keeps the name of its last recipe."""
+    flow = simplify_flow(fixture("DEMO_SIMPLE"))
+    step = flow.steps[0]
+    assert step.id == step.main_recipe == "join_orders_customers"
+    assert step.recipes == ["prepare_orders", "stack_orders", "join_orders_customers"]
+    assert step.name_note is None
+    assert "| join_orders_customers | prepare_orders, stack_orders, join_orders_customers |" in (
+        markdown(flow)
+    )
+
+
+@pytest.mark.parametrize(
+    ("recipe", "note"),
+    [
+        ("prepare_schema", "nom réservé"),
+        ("ingest_01", "nom réservé"),
+        ("compute.orders", "caractères interdits"),
+        ("a" * 101, "caractères interdits"),
+    ],
+)
+def test_a_recipe_name_unfit_for_a_task_key_falls_back(recipe: str, note: str) -> None:
+    project = fixture("DEMO_SIMPLE")
+    old = "window_orders"
+    rcp = project.recipe(old)
+    rcp.name = recipe
+    nodes = project.flow.topological_order
+    project.flow.topological_order = [n.replace(old, recipe) for n in nodes]
+    flow = simplify_flow(project)
+    step = next(s for s in flow.steps if s.main_recipe == recipe)
+    assert re.fullmatch(r"step_\d\d", step.id)
+    assert step.name_note is not None and note in step.name_note
+    assert f"- {step.id} (recette {recipe}) : " in markdown(flow)
+
+
+def test_case_collision_between_step_names_falls_back() -> None:
+    project = fixture("DEMO_SIMPLE")
+    rcp = project.recipe("window_orders")
+    rcp.name = "GROUP_BY_CUSTOMER"
+    nodes = project.flow.topological_order
+    project.flow.topological_order = [n.replace("window_orders", rcp.name) for n in nodes]
+    ids = [s.id for s in simplify_flow(project).steps]
+    assert "group_by_customer" in ids
+    assert "GROUP_BY_CUSTOMER" not in ids

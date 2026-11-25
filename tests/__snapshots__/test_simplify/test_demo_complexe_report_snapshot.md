@@ -11,26 +11,28 @@ Généré par dku2dbx 0.0.1.
 
 ## Étapes
 
+Chaque étape porte le nom de sa recette principale (la dernière exécutée).
+
 | Étape | Recettes (ordre d'exécution) | Tables écrites | Tables en CTE |
 |---|---|---|---|
-| step_01 | distinct_depots | depots_unique | — |
-| step_02 | prepare_depots | depots_clean | — |
-| step_03 | plugin_geocode | depots_geo | — |
-| step_04 | sync_events | events_sync | — |
-| step_05 | prepare_events | events_clean | — |
-| step_06 | pivot_status | status_by_depot | — |
-| step_07 | split_status | events_delivered, events_failed, events_other | — |
-| step_08 | join_delivered_depots | delivered_enriched | — |
-| step_09 | group_daily_depot | daily_depot_kpis | — |
-| step_10 | join_routes, group_routes | route_kpis | delivered_routes |
-| step_11 | python_scoring | customer_scores | — |
-| step_12 | prepare_b2b, join_b2b_scores | b2b_scores | b2b_clean |
-| step_13 | stack_failed | events_anomalies | — |
-| step_14 | prepare_anomalies | anomalies_clean | — |
-| step_15 | sql_anomaly_report | anomaly_report | — |
-| step_16 | window_depot_trend | depot_trend | — |
-| step_17 | sort_depot_trend | depot_trend_sorted | — |
-| step_18 | topn_late_depots | top_late_depots | — |
+| distinct_depots | distinct_depots | depots_unique | — |
+| prepare_depots | prepare_depots | depots_clean | — |
+| plugin_geocode | plugin_geocode | depots_geo | — |
+| sync_events | sync_events | events_sync | — |
+| prepare_events | prepare_events | events_clean | — |
+| pivot_status | pivot_status | status_by_depot | — |
+| split_status | split_status | events_delivered, events_failed, events_other | — |
+| join_delivered_depots | join_delivered_depots | delivered_enriched | — |
+| group_daily_depot | group_daily_depot | daily_depot_kpis | — |
+| group_routes | join_routes, group_routes | route_kpis | delivered_routes |
+| python_scoring | python_scoring | customer_scores | — |
+| join_b2b_scores | prepare_b2b, join_b2b_scores | b2b_scores | b2b_clean |
+| stack_failed | stack_failed | events_anomalies | — |
+| prepare_anomalies | prepare_anomalies | anomalies_clean | — |
+| sql_anomaly_report | sql_anomaly_report | anomaly_report | — |
+| window_depot_trend | window_depot_trend | depot_trend | — |
+| sort_depot_trend | sort_depot_trend | depot_trend_sorted | — |
+| topn_late_depots | topn_late_depots | top_late_depots | — |
 
 ## Tables conservées et justification
 

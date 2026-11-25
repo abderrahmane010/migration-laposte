@@ -11,10 +11,14 @@ A table stays materialized when (ROADMAP rules):
 Every other table is read by exactly one recipe: the recipe producing it joins the
 step of that consumer, and the table becomes a CTE of the step. ``fusion=False``
 keeps every table (one step per recipe), for fine reconciliation and debugging.
+
+A step is named after its main recipe, the last one in execution order (option B, decision
+of 2026-11-25); its header and the report keep every recipe of the step.
 """
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,12 +37,19 @@ class _Model(BaseModel):
 
 class Step(_Model):
     id: str
+    """Name of the main recipe; ``step_NN`` when that name cannot be a job task key."""
     recipes: list[str]
     """In execution (topological) order."""
     outputs: list[str]
     """Materialized tables written by the step."""
     inlined: list[str] = Field(default_factory=list)
     """Intermediate tables that become CTEs of the step."""
+    name_note: str | None = None
+    """Why the step is not named after its main recipe (French, for the report)."""
+
+    @property
+    def main_recipe(self) -> str:
+        return self.recipes[-1]
 
 
 class SimplifiedFlow(_Model):
@@ -50,6 +61,38 @@ class SimplifiedFlow(_Model):
     """Materialized table -> reasons (French, for the report)."""
     removed: list[str]
     """Tables that become CTEs."""
+
+
+# ASSUMPTION (H-62): a Lakeflow Job task key is made of letters, digits, "_" and "-"
+# (100 characters at most); the bundle reserves the names of its own tasks and files.
+STEP_NAME = re.compile(r"[A-Za-z0-9_-]{1,100}")
+RESERVED_NAMES = frozenset({"prepare_schema", "00_prepare_schema", "pipeline", "pipeline_checks"})
+RESERVED_PREFIXES = ("ingest_",)
+
+
+def _step_name(recipe: str, taken: set[str]) -> str | None:
+    """Why ``recipe`` cannot name its step, None when it can."""
+    if not STEP_NAME.fullmatch(recipe):
+        return "caractères interdits dans une clé de tâche (lettres, chiffres, _ et - seulement)"
+    if recipe in RESERVED_NAMES or recipe.startswith(RESERVED_PREFIXES):
+        return "nom réservé par le bundle"
+    if recipe.lower() in taken:
+        return "nom identique à une autre étape à la casse près"
+    return None
+
+
+def _named_steps(steps: list[dict[str, list[str]]]) -> list[Step]:
+    taken: set[str] = set()
+    named = []
+    for i, s in enumerate(steps, start=1):
+        main = s["recipes"][-1]
+        note = _step_name(main, taken)
+        step_id = main if note is None else f"step_{i:02d}"
+        if note is not None and step_id.lower() in taken:
+            raise SimplifyError(f"step name {step_id} is already taken")
+        taken.add(step_id.lower())
+        named.append(Step(id=step_id, name_note=note, **s))
+    return named
 
 
 class SimplifyError(Dku2dbxError):
@@ -167,7 +210,7 @@ def simplify_flow(project: Project, *, fusion: bool = True) -> SimplifiedFlow:
         project=project.key,
         fusion=fusion,
         recipes_before=len(project.recipes),
-        steps=[Step(id=f"step_{i:02d}", **s) for i, s in enumerate(steps, start=1)],
+        steps=_named_steps(steps),
         kept=kept,
         removed=removed,
     )
