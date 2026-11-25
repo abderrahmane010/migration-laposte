@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from sqlglot import exp
 
 from dku2dbx import __version__
 from dku2dbx.connect.resolve import Branching
+from dku2dbx.data.naming import dataiku_properties
 from dku2dbx.errors import Dku2dbxError, UnsupportedConstruct
 from dku2dbx.generate.partitions import (
     DayPartition,
@@ -82,6 +84,8 @@ class Bundle:
     pipeline_steps: list[str] = field(default_factory=list)
     branching: Branching | None = None
     """Steps materialized as views of the pipeline (target B)."""
+    copies: list[str] = field(default_factory=list)
+    """Unbranched sources whose ingestion task is a copy notebook (phase 11)."""
 
 
 def _bundle_name(key: str) -> str:
@@ -289,6 +293,8 @@ class _StepBuilder:
         ]
         before = len(self.unmapped_checks)
         for dataset in step.outputs:
+            props = self.set_properties(dataset).removesuffix(";")
+            cells.append(f"spark.sql({json.dumps(props, ensure_ascii=False)})")
             for check in self._checks(dataset):
                 sql = check.split("\n")[-1].removesuffix(";")
                 cells.append(f"spark.sql({json.dumps(sql, ensure_ascii=False)}).collect()")
@@ -311,8 +317,27 @@ class _StepBuilder:
         for dataset in step.outputs:
             query = self._query(dataset, set(step.inlined))
             cells += self._statement(dataset, query, dataset in appends)
+            cells.append(self.set_properties(dataset))
             cells += self._checks(dataset)
         return cells
+
+    def properties(self, dataset: str) -> exp.Properties:
+        """The original Dataiku identifiers of a table (phase 11, decision of 2026-11-25)."""
+        values = dataiku_properties(self.project, self.project.dataset(dataset))
+        return exp.Properties(
+            expressions=[
+                exp.Property(this=exp.Literal.string(k), value=exp.Literal.string(v))
+                for k, v in values.items()
+            ]
+        )
+
+    def set_properties(self, dataset: str) -> str:
+        alter = exp.Alter(
+            this=table(dataset),
+            kind="TABLE",
+            actions=[exp.AlterSet(expressions=[self.properties(dataset)])],
+        )
+        return alter.sql(dialect=DIALECT) + ";"
 
     def _checks(self, dataset: str) -> list[str]:
         """Dataset checks -> SQL assertions after the write (H-52)."""
@@ -382,11 +407,15 @@ def _ingest_tasks(project: Project, branching: Branching | None) -> dict[str, st
 
 
 def _ingest_files(
-    ingest: dict[str, str], branching: Branching | None, header: str
+    ingest: dict[str, str], branching: Branching | None, header: str, copies: Mapping[str, str]
 ) -> dict[str, str]:
-    """Substitute ingestion notebooks: they fail until the source is branched (phase 7)."""
+    """Ingestion notebooks: the copy of the source (phase 11), or a notebook that fails
+    until the source is branched (phase 7)."""
     files = {}
     for source, key in ingest.items():
+        if source in copies:
+            files[f"src/{key}.py"] = copies[source]
+            continue
         reason = branching.unresolved[source] if branching else ""
         message = f"dku2dbx: source {source} is not branched yet ({reason}): see a_brancher.md"
         files[f"src/{key}.sql"] = (
@@ -407,6 +436,17 @@ def _ingest_files(
             + "\n"
         )
     return files
+
+
+def _task_paths(
+    steps: list[GeneratedStep], ingest: dict[str, str], copies: Mapping[str, str]
+) -> dict[str, str]:
+    """Notebook of each task: steps, then ingestion (a copy notebook is Python)."""
+    paths = {g.step.id: g.path for g in steps}
+    paths.update(
+        {key: f"src/{key}.py" if s in copies else f"src/{key}.sql" for s, key in ingest.items()}
+    )
+    return paths
 
 
 def _depends_on(
@@ -499,7 +539,11 @@ def generate_pipeline_files(
         for dataset in step.outputs:
             query = _pipeline_query(builder._query(dataset, set(step.inlined)))
             view = exp.Create(
-                this=table(dataset), kind="MATERIALIZED VIEW", expression=query, replace=False
+                this=table(dataset),
+                kind="MATERIALIZED VIEW",
+                expression=query,
+                replace=False,
+                properties=builder.properties(dataset),
             )
             sql = view.sql(dialect=DIALECT, pretty=True).replace(
                 "CREATE MATERIALIZED VIEW", "CREATE OR REFRESH MATERIALIZED VIEW", 1
@@ -528,7 +572,7 @@ def _job_tasks(
     ]
     ingest = sorted({d for sid in step_ids for d in deps[sid] if d.startswith(INGEST_PREFIX)})
     result_tasks += [
-        {"key": key, "depends_on": [SCHEMA_TASK], "notebook": f"../src/{key}.sql"} for key in ingest
+        {"key": key, "depends_on": [SCHEMA_TASK], "notebook": f"../{paths[key]}"} for key in ingest
     ]
     upstream_tasks = [SCHEMA_TASK]
     if kept & pipeline_ids:
@@ -587,8 +631,12 @@ def generate_job_bundle(
     fusion: bool = True,
     target: str = "job",
     branching: Branching | None = None,
+    copies: Mapping[str, str] | None = None,
 ) -> Bundle:
     """Every file of the bundle, in memory (written by ``write_bundle``).
+
+    ``copies``: copy notebook of unbranched sources (phase 11, ``dku2dbx data``); they
+    replace the ingestion tasks that fail.
 
     ``target="job"`` (A): a job of SQL notebooks. ``target="pipeline"`` (B): a Lakeflow
     pipeline of materialized views, run by the job before the SQL tasks it cannot hold.
@@ -626,10 +674,9 @@ def generate_job_bundle(
         if generated.step.id not in pipeline_ids:
             files[generated.path] = generated.notebook
     ingest = _ingest_tasks(project, branching)
-    files.update(_ingest_files(ingest, branching, header))
+    files.update(_ingest_files(ingest, branching, header, copies or {}))
     deps = _depends_on(flow, project, ingest)
-
-    paths = {g.step.id: g.path for g in steps}
+    paths = _task_paths(steps, ingest, copies or {})
     if "src/pipeline_checks.sql" in files:
         paths["pipeline_checks"] = "src/pipeline_checks.sql"
 
@@ -717,6 +764,7 @@ def generate_job_bundle(
         scenarios=scenarios,
         target=target,
         pipeline_steps=sorted(pipeline_ids),
+        copies=sorted(set(copies or {}) & set(ingest)),
     )
     files["GENERATION.md"] = generation_report(project, bundle, params, partitioned)
     return bundle
@@ -768,6 +816,10 @@ def generation_report(
         "Avant de déployer : renseigner `catalog`, `schema` et `admin_group` dans "
         "`databricks.yml` (valeurs fictives entre crochets).",
         "",
+        "Noms : chaque étape porte le nom de sa recette principale (en-tête : toutes ses "
+        "recettes) ; chaque table, le nom de son dataset Dataiku, et ses propriétés "
+        "`dku2dbx.dataiku.*` gardent les identifiants Dataiku d'origine.",
+        "",
     ]
     if partitioned:
         lines += [
@@ -801,9 +853,14 @@ def generation_report(
         lines.append(
             f"{len(bundle.branching.resolved)} branchée(s), "
             f"**{len(bundle.branching.unresolved)} à brancher** (mapping "
-            f"`{bundle.branching.source_file}`) ; chacune a une tâche d'ingestion qui échoue :"
+            f"`{bundle.branching.source_file}`) ; chacune a une tâche d'ingestion : une copie "
+            "idempotente (phase 11) si `dku2dbx data` l'a décidée, sinon une tâche qui échoue :"
         )
-        lines += [f"- {n} : {why}" for n, why in sorted(bundle.branching.unresolved.items())]
+        lines += [
+            f"- {n} : "
+            + ("copie (notebook `src/…py`, relançable sans doublon)" if n in bundle.copies else why)
+            for n, why in sorted(bundle.branching.unresolved.items())
+        ]
     lines += ["", "## Scénarios", ""]
     for job in bundle.scenarios:
         status = (

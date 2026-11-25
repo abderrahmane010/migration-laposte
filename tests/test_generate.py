@@ -165,6 +165,9 @@ def run_job_locally(spark: Any, bundle_files: dict[str, str]) -> None:
             for cell in bundle_files[path].split(CELL)[1:]:
                 if cell.startswith(("USE ", "CREATE SCHEMA")):
                     continue
+                if cell.startswith("ALTER TABLE"):  # Dataiku metadata, temp views have none
+                    assert "SET TBLPROPERTIES (" in cell and "'dku2dbx.dataiku.dataset'=" in cell
+                    continue
                 match = _CREATE.match(cell.strip())
                 assert match, f"unexpected statement in {path}: {cell[:60]}"
                 spark.sql(match.group(2)).createOrReplaceTempView(match.group(1))
@@ -524,7 +527,11 @@ def test_pipeline_checks_run_after_the_pipeline(tmp_path: Path) -> None:
     assert checks["depends_on"] == [{"task_key": "pipeline"}]
 
 
-_VIEW = re.compile(r"^CREATE OR REFRESH MATERIALIZED VIEW `([^`]+)` AS\n(.*);$", re.S)
+_VIEW = re.compile(
+    r"^CREATE OR REFRESH MATERIALIZED VIEW `([^`]+)`\n"
+    r"TBLPROPERTIES \(\n(?:  '[^']*'='[^']*',?\n)+\) AS\n(.*);$",
+    re.S,
+)
 
 
 @pytest.mark.spark
@@ -550,7 +557,7 @@ def test_demo_simple_pipeline_runs_end_to_end_on_spark(spark: Any) -> None:
             body = "\n".join(line for line in lines if not line.startswith("--")).strip()
             if body:
                 match = _VIEW.match(body + ";")
-                assert match, body[:60]
+                assert match, body[:200]
                 spark.sql(match.group(2)).createOrReplaceTempView(match.group(1))
     # same expected values as target A (computed by hand)
     stats = sorted(tuple(r) for r in spark.table("customer_stats").collect())

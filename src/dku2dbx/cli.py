@@ -21,6 +21,12 @@ from dku2dbx.analyze.scoring import load_scoring
 from dku2dbx.connect.report import write_report as write_connect_report
 from dku2dbx.connect.resolve import ConnectionsError, branch_sources, load_connections
 from dku2dbx.connect.uc_check import check_tables, workspace_client
+from dku2dbx.data.config import DataConfigError, load_data_config
+from dku2dbx.data.notebook import REPORT as DATA_REPORT
+from dku2dbx.data.notebook import copy_notebook, write_data
+from dku2dbx.data.permissions import check_permissions, grants_client
+from dku2dbx.data.plan import Strategy as DataStrategy
+from dku2dbx.data.plan import plan_data
 from dku2dbx.errors import ExportReadError, ScoringConfigError
 from dku2dbx.generate.bundle import GenerateError, generate_job_bundle, write_bundle
 from dku2dbx.model.ir import Project
@@ -210,7 +216,7 @@ def translate(
 
 
 @app.command()
-def generate(
+def generate(  # noqa: PLR0913, PLR0917 (one option per input)
     export: Path = typer.Argument(
         ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
@@ -222,6 +228,9 @@ def generate(
     connections: Path | None = typer.Option(
         None, "--connections", help="Mapping des sources (phase 7, défaut : config/…)."
     ),
+    data_config: Path | None = typer.Option(
+        None, "--data", help="Accès aux données (phase 11, défaut : config/data.local.yaml…)."
+    ),
 ) -> None:
     """Migrer : générer le bundle Databricks, job de notebooks SQL ou pipeline (phase 6)."""
     if target not in ("job", "pipeline"):
@@ -231,10 +240,18 @@ def generate(
         config, source = load_connections(connections)
         project = ZipExportReader(export, config.instance_variables).read()
         branching = branch_sources(project, config, source)
+        data_plan = plan_data(project, *load_data_config(data_config), branching)
+        copies = {d.dataset: copy_notebook(data_plan, d) for d in data_plan.copies}
         bundle = generate_job_bundle(
-            project, fusion=not no_fusion, target=target, branching=branching
+            project, fusion=not no_fusion, target=target, branching=branching, copies=copies
         )
-    except (ExportReadError, SimplifyError, GenerateError, ConnectionsError) as exc:
+    except (
+        ExportReadError,
+        SimplifyError,
+        GenerateError,
+        ConnectionsError,
+        DataConfigError,
+    ) as exc:
         typer.echo(f"Erreur : {exc}", err=True)
         raise typer.Exit(code=1) from exc
     target_dir = out or Path("out") / project.key / "bundle"
@@ -246,6 +263,8 @@ def generate(
     )
     for g in manual:
         typer.echo(f"  - {g.step.id} : {'; '.join(g.reasons)}")
+    if bundle.copies:
+        typer.echo(f"Sources copiées par le job (phase 11) : {', '.join(bundle.copies)}")
 
 
 @app.command()
@@ -357,6 +376,60 @@ def reconcile(
     for warning in plan.warnings:
         typer.echo(f"  - {warning}")
     typer.echo(f"Notebook {target / NOTEBOOK}, plan {target / PLAN}, registre {target / REGISTRY}")
+
+
+@app.command()
+def data(  # noqa: PLR0913, PLR0917 (one option per input)
+    export: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    ),
+    data_config: Path | None = typer.Option(
+        None, "--data", help="Accès aux données (défaut : config/data.local.yaml, sinon data.yaml)."
+    ),
+    connections: Path | None = typer.Option(
+        None, "--connections", help="Mapping des sources (phase 7, défaut : config/…)."
+    ),
+    out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
+    check_uc: bool = typer.Option(
+        False, "--check-uc", help="Vérifier les droits dans Unity Catalog (profil Databricks)."
+    ),
+    profile: str | None = typer.Option(None, "--profile", help="Profil Databricks CLI."),
+    principal: str | None = typer.Option(
+        None, "--principal", help="Identité du job (utilisateur ou service principal)."
+    ),
+    target: str | None = typer.Option(
+        None, "--target", help="catalog.schema cible, pour --check-uc."
+    ),
+) -> None:
+    """Migrer les datasets : référencer, copier une fois, recalculer ou refuser (phase 11)."""
+    if check_uc and not (principal and target and target.count(".") == 1):
+        typer.echo("Erreur : --check-uc demande --principal et --target catalog.schema", err=True)
+        raise typer.Exit(code=1)
+    try:
+        mapping, mapping_source = load_connections(connections)
+        config, source = load_data_config(data_config)
+        project = ZipExportReader(export, mapping.instance_variables).read()
+        branching = branch_sources(project, mapping, mapping_source)
+        plan = plan_data(project, config, source, branching)
+    except (ExportReadError, ConnectionsError, DataConfigError) as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    permissions = None
+    if check_uc and principal and target:
+        catalog, schema = target.split(".")
+        client = grants_client(profile)
+        permissions = check_permissions(
+            plan, client, principal=principal, catalog=catalog, schema=schema
+        )
+    folder = out / project.key / "donnees"
+    write_data(plan, folder, permissions)
+    counts = Counter(d.strategy for d in plan.decisions)
+    summary = ", ".join(f"{counts[s]} {s.value}" for s in DataStrategy if counts[s])
+    typer.echo(f"Projet {project.key} : {len(plan.decisions)} dataset(s) — {summary}.")
+    typer.echo(f"Rapport dans {folder / DATA_REPORT} (configuration {source})")
+    if permissions and any(permissions.values()):
+        typer.echo("Droits manquants : voir la section Permissions du rapport.")
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":  # pragma: no cover

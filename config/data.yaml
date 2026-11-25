@@ -1,0 +1,31 @@
+# Migration des datasets (phase 11) : où lire les données de chaque connexion Dataiku.
+#
+# CE FICHIER NE CONTIENT QUE DES EXEMPLES FICTIFS. Les vraies valeurs vont dans
+# config/data.local.yaml (ignoré par Git), lu en priorité par `dku2dbx data`
+# et `dku2dbx generate --data`.
+#
+# Rien n'est supposé : une connexion absente de ce fichier n'est ni fédérée ni copiée,
+# et ses datasets sont REFUSÉS avec la raison dans donnees.md.
+#
+# Pour chaque connexion Dataiku (même nom que dans Dataiku) :
+#   federation       available | unavailable — à confirmer avec l'équipe plateforme ;
+#                    absent = « À CONFIRMER », jamais supposé compatible
+#   foreign_catalog  catalogue Unity Catalog fédéré de cette base (obligatoire si available)
+#   access           reference (défaut) : lire sur place par Federation, sans copie
+#                    copy : copier une fois dans le schéma cible
+#   root             connexion de fichiers (Filesystem, HDFS, S3, Azure, GCS) : dossier où
+#                    les fichiers sont lisibles depuis Databricks (Volume ou external
+#                    location) ; le chemin Dataiku du dataset (params.path) y est ajouté
+#
+# uploads_root : Volume où l'équipe dépose les fichiers téléversés dans Dataiku
+#                (datasets UploadedFiles), un dossier par dataset : <uploads_root>/<dataset>/
+
+connections:
+  pg_sources_exemple:
+    federation: available
+    foreign_catalog: "[CATALOGUE_FEDERE]"
+    access: reference
+  hdfs_sources_exemple:
+    root: "/Volumes/[CATALOGUE]/[SCHEMA]/[VOLUME]/hdfs"
+
+uploads_root: "/Volumes/[CATALOGUE]/[SCHEMA]/[VOLUME]/uploads"
