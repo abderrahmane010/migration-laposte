@@ -18,6 +18,9 @@ uv run dku2dbx translate export.zip             # recettes -> out/<projet>/sql/*
 uv run dku2dbx residue export.zip               # résidu LLM -> out/<projet>/residue/RESIDU.md
 uv run dku2dbx connect export.zip               # sources -> Unity Catalog, out/<projet>/a_brancher.md
 uv run dku2dbx data export.zip                  # datasets : référencer, copier, recalculer -> out/<projet>/donnees/
+uv run dku2dbx list                             # projets lisibles par l'API Dataiku
+uv run dku2dbx generate --api CLE               # toute commande : --api CLE au lieu de l'export ZIP
+uv run dku2dbx compare CLE --zip export.zip     # API et export comparés champ par champ
 uv run dku2dbx generate export.zip              # bundle Databricks -> out/<projet>/bundle/
 uv run python tests/fixtures/make_fixture.py    # régénère les exports synthétiques
 uv run pytest                                   # tests
@@ -48,6 +51,19 @@ La classe d'une recette est sa **classe cible** prévue par la ROADMAP ; la colo
 Les vraies correspondances « connexion Dataiku → catalogue.schéma Unity Catalog » vont dans `config/connections.local.yaml`, **ignoré par Git** (modèle commenté et fictif : `config/connections.yaml`). On y met aussi les `shared_projects` (datasets partagés par d'autres projets) et les `instance_variables` (`${NODE_DC}`…).
 
 `dku2dbx connect <export.zip> [--connections fichier]` écrit `a_brancher.md` (sources branchées, sources à brancher avec leur raison, graphe où les sources à brancher sont en pointillés). `dku2dbx generate` lit le même mapping : les sources branchées sont lues en `catalog.schema.table`, chaque source non branchée reçoit une tâche d'ingestion qui échoue tant qu'elle n'est pas branchée. `--check-uc --profile X` vérifiera les tables dans Unity Catalog (SDK Databricks, optionnel).
+
+## Lire par l'API Dataiku (phase 12)
+
+Chaque commande qui lit un export accepte `--api <clé du projet>` à la place du fichier ZIP (`analyze --api` est répétable). Le lecteur API reconstruit en mémoire les fichiers d'un export DSS 15 à partir d'appels **en lecture seule**, puis les passe au même code que le lecteur ZIP : même moteur, même représentation interne. Le lecteur ZIP reste disponible et inchangé.
+
+L'URL et la clé viennent des variables d'environnement `DATAIKU_URL` et `DATAIKU_API_KEY`, jamais du code ni de la ligne de commande ; la clé n'est jamais affichée. TLS est toujours vérifié (`DATAIKU_CA_BUNDLE` pour une autorité interne) ; aucun proxy n'est utilisé.
+
+```bash
+set -a; . ~/.dataiku_cloud.env; set +a          # charge DATAIKU_URL et DATAIKU_API_KEY (fichier chmod 600)
+uv run dku2dbx compare CLE --zip exports/CLE.zip
+```
+
+`dku2dbx compare` écrit `out/<clé>/comparaison_api_zip.md` : chaque champ du modèle interne est comparé, et chaque différence est listée, expliquée (provenance seulement : hash des octets lus, entrées d'export non interprétées) ou non. La commande échoue s'il reste une différence non expliquée.
 
 ## Migrer les datasets (phase 11)
 

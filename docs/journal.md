@@ -486,3 +486,33 @@ Phase 11 validée par le responsable le 2026-11-25 (554 tests passés). Limitati
 - noms de colonnes incompatibles avec Delta : à étendre aux tables générées par le bundle ;
 - copies d'historique : à intégrer aux tâches du bundle ;
 - lecture des fichiers sur place : à développer.
+
+## Phase 12 — Lecteur par l'API Dataiku (2026-11-25)
+
+### Décisions prises avec le responsable
+
+- Objectif prioritaire : un lecteur API fiable qui récupère les mêmes informations que l'export ZIP et produit la même représentation interne.
+- Aucune régression du lecteur ZIP ; les deux sources restent disponibles et utilisent le même moteur.
+- La comparaison API / ZIP vérifie l'intégralité des métadonnées et des configurations extraites.
+
+### Réalisé
+
+- `reader/entries.py` : l'interface commune des entrées d'un export. Le constructeur du modèle interne du lecteur ZIP la lit, quelle que soit la source (`build_project`). Le code de lecture du ZIP n'a pas changé.
+- `reader/api_reader.py` : client **en lecture seule** (GET uniquement, TLS vérifié, sans proxy, clé dans l'environnement, jamais affichée). Il reconstruit en mémoire les entrées d'un export DSS 15 (manifeste, `params.json`, variables, datasets, recettes et payloads, scénarios, zones, modèles), retire les clés que seule l'API ajoute (H-71), puis passe ces entrées au même constructeur.
+- `reader/compare.py` : comparaison champ par champ des deux modèles internes. Les listes d'objets sont alignées par nom ou identifiant. Chaque différence est expliquée (provenance) ou non.
+- CLI : `--api <clé>` sur `analyze` (répétable), `simplify`, `translate`, `connect`, `data`, `residue`, `generate` et `reconcile` ; nouvelles commandes `dku2dbx list` et `dku2dbx compare <clé> --zip <export>`.
+- **Correctif du lecteur ZIP** trouvé en comparant avec l'API : un export DSS 15 écrit `generatedWithDSSVersion`, `originalProjectKey`, des plugins `{pluginId, version}` et `localvariables.json` (H-02 et H-13 corrigées). Les deux formes sont lues : le modèle interne des fixtures est identique octet pour octet.
+
+### Résultats
+
+- `uv run pytest` : **572 tests passés** ; `ruff` et `mypy --strict` propres.
+- Instance d'essai Dataiku Cloud (DSS 15.2.2, projet du tutoriel) : `dku2dbx compare` donne **0 différence non expliquée**. Les 8 différences expliquées sont 6 hash de provenance et les entrées d'export non interprétées (et leur avertissement).
+- Toutes les commandes produisent les mêmes fichiers par l'API et par le ZIP, aux hash de provenance près. Seule exception : l'analyse, où l'avertissement sur les entrées d'export non interprétées n'existe que pour le ZIP.
+- Non-régression : le modèle interne de `DEMO_SIMPLE` et `DEMO_COMPLEXE` lu par le ZIP est identique à celui d'avant la phase.
+- Fausse API construite à partir des fixtures : même modèle interne que le ZIP, y compris scénarios, zones, plugins, objets étrangers, partitions et steps Prepare.
+
+### Points ouverts
+
+- Le projet d'essai n'a ni scénario, ni zone, ni modèle enregistré, ni objet partagé, ni variable : ces lectures ne sont vérifiées qu'avec la fausse API (H-72, H-73). À comparer sur un projet qui en a, ou sur un projet La Poste (`dku2dbx compare`, sans aucun envoi externe).
+- Les hash `source_sha256` diffèrent entre les deux sources (mise en page du JSON de l'export) : les en-têtes des fichiers générés indiquent donc la source réellement lue.
+- L'application (phase 10) ne lit pas encore par l'API.
