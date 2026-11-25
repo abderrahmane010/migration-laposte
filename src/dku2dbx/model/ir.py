@@ -107,6 +107,9 @@ class Dataset(_Model):
     zone: str | None = None
     params: JsonDict = Field(default_factory=dict)
     """Full raw ``params`` block, for fields not modelled above."""
+    format_type: str | None = None
+    """``formatType`` of a file dataset (csv, parquet…), None for a SQL table."""
+    format_params: JsonDict = Field(default_factory=dict)
     source_path: str
     source_sha256: str
     raw: JsonDict | None = None

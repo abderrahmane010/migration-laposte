@@ -309,6 +309,11 @@ class _ProjectBuilder:
             checks=[_as_dict(c) for c in _as_list(data.get("checks"))],
             zone=_opt_str(data.get("zone")),
             params=params,
+            # ASSUMPTION (H-63): a file dataset has top-level formatType and formatParams
+            # (seen on a Dataiku Cloud export: csv with separator, quoteChar, escapeChar,
+            # style, charset, parseHeaderRow, dateSerializationFormat).
+            format_type=_opt_str(data.get("formatType")),
+            format_params=_as_dict(data.get("formatParams")),
             source_path=rel,
             source_sha256=sha,
             raw=data if status is Status.UNKNOWN else None,
