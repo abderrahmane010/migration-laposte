@@ -1,6 +1,6 @@
 # ROADMAP — `dku2dbx`, usine de migration Dataiku → Databricks
 
-Ce plan découpe la construction en 11 phases (0 à 10). Chacune a un objectif, des tâches, des livrables et des critères de fin (« terminé quand… »). Claude Code doit les réaliser **dans l'ordre, une à la fois**, et s'arrêter à la fin de chaque phase pour validation humaine (voir `CLAUDE.md`).
+Ce plan découpe la construction en 14 phases (0 à 13). Les phases 11 à 13 ont été ajoutées le 2026-11-25. Chacune a un objectif, des tâches, des livrables et des critères de fin (« terminé quand… »). Claude Code doit les réaliser **dans l'ordre, une à la fois**, et s'arrêter à la fin de chaque phase pour validation humaine (voir `CLAUDE.md`).
 
 Vue d'ensemble :
 
@@ -17,6 +17,9 @@ Vue d'ensemble :
 | 8 | Résidu assisté par LLM | Migrer | Recettes Python et cas non couverts, à relire |
 | 9 | Réconciliation | Migrer | Preuve d'équivalence des sorties |
 | 10 | Interface (optionnelle) | Tout | Databricks App au-dessus de la CLI |
+| 11 | Migration des datasets | Brancher | Décision par dataset, copies idempotentes, noms Dataiku conservés |
+| 12 | Lecteur par API Dataiku | Analyser | Projet lu sans export ZIP, identique à la lecture du ZIP |
+| 13 | Pilotage par agent (MCP) | Tout | Agent qui appelle les outils déterministes, après le pilote |
 
 **Hors périmètre de la v1 (inventoriés mais non convertis) :** modèles ML (Visual ML, saved models), API node, webapps, dashboards, plugins, recettes R/Shell/Scala, objets GenAI (LLM Mesh, Knowledge Banks, agents), Dataiku Govern. Ces objets sont comptés et classés `MANUAL` dans le rapport de la phase 2.
 
@@ -241,6 +244,63 @@ Terminé quand : les tests couvrent chaque couche avec des DataFrames construits
 Parcours : déposer un export ZIP → Analyser → Simplifier → Brancher → Migrer (générer, télécharger ou déployer le bundle) → Réconcilier. L'app s'authentifie avec son service principal ou avec l'identité de l'utilisateur. Les exports sont stockés dans un Volume Unity Catalog à accès restreint.
 
 Terminé quand : l'app est déployée en `dev` via le bundle du projet et le parcours complet fonctionne sur `DEMO_SIMPLE`.
+
+---
+
+## Phase 11 — Migration des datasets et noms Dataiku
+
+**Objectif :** chaque dataset Dataiku a sa table Unity Catalog, sous le nom Dataiku, avec ses données quand il faut les déplacer. Ajoutée le 2026-11-25.
+
+Principe : ne jamais copier par défaut. Pour chaque dataset, l'outil décide de façon déterministe s'il faut le **référencer**, le **copier une fois**, le **recalculer** ou le **refuser**, et dit pourquoi.
+
+Tâches :
+1. **Décision par dataset** (`dku2dbx data <export>`), à partir de `config/data.yaml` (exemples fictifs) ou `config/data.local.yaml` (ignoré par Git) :
+
+   | Cas | Décision |
+   |---|---|
+   | Source déjà branchée (phase 7) | `BRANCHÉ` : rien à copier, la table est vérifiée |
+   | Source dans une base compatible et déclarée pour Lakehouse Federation | `RÉFÉRENCE` (lecture directe, branchement proposé), ou `COPIE` si la connexion le demande |
+   | Source fichier (Filesystem, HDFS, S3, Azure, GCS) dont l'emplacement est déclaré | `COPIE` depuis l'emplacement (Volume ou external location) |
+   | Fichier déposé dans Dataiku (`UploadedFiles`) | `COPIE` depuis le Volume où l'équipe dépose les fichiers |
+   | Dataset produit par une recette | `RECALCUL` par le job, sauf historique non recalculable |
+   | Partitions déjà construites et jamais recalculées, sortie en append | `HISTORIQUE` : copie unique des données existantes |
+   | Tout autre cas (type, format ou option inconnus, emplacement non déclaré) | `REFUSÉ`, avec la raison |
+
+2. **Lakehouse Federation, classification explicite.** Aucune connexion n'est supposée compatible. Chaque source base de données reçoit un statut : `COMPATIBLE` (type pris en charge par Federation **et** connexion déclarée disponible avec son catalogue fédéré), `À CONFIRMER` (type pris en charge, connexion non déclarée), `NON DISPONIBLE` (déclarée indisponible), `INCOMPATIBLE` (type non pris en charge). Seul `COMPATIBLE` permet de référencer ou de copier par Federation.
+3. **Noms Dataiku conservés.** Les tables portent le nom du dataset Dataiku. Les noms et identifiants originaux (projet, dataset, recette productrice, connexion, table ou chemin source, hash du JSON) sont **toujours** enregistrés dans les métadonnées de la table (`TBLPROPERTIES`) et dans `donnees.json`, y compris quand une contrainte Unity Catalog empêche d'utiliser le nom tel quel. Dans ce cas, ou si deux noms ne diffèrent que par la casse, le dataset est `REFUSÉ` avec un nom proposé : jamais de renommage silencieux.
+4. **Option B pour les étapes** (décision du 2026-11-25) : la fusion des recettes est conservée et chaque étape porte le nom de sa recette principale (celle qui écrit la sortie de l'étape). L'en-tête de chaque fichier et le rapport de simplification gardent la correspondance avec **toutes** les recettes Dataiku de l'étape.
+5. **Copies idempotentes.** Un notebook de copie par dataset, relançable sans duplication ni écrasement accidentel : par défaut, une table déjà chargée n'est pas réécrite, et seules les partitions absentes sont ajoutées ; le remplacement complet n'a lieu qu'avec le mode explicite `replace`. Jamais d'ajout aveugle.
+6. **Validation des datasets** après chaque copie : schéma (colonnes manquantes ou en trop), types (schéma Dataiku déclaré), partitions (colonne présente, partitions de la source toutes chargées), nombre de lignes, et permissions (lecture de la source, écriture dans le schéma cible ; vérification préalable optionnelle par le SDK Databricks).
+7. Les sources non branchées dont la décision est `COPIE` reçoivent leur notebook de copie à la place de la tâche d'ingestion qui échoue (phase 7).
+
+Livrables : `out/<P>/donnees/` (rapport `donnees.md`, `donnees.json`, notebooks de copie), commande `dku2dbx data`, hypothèses marquées dans `docs/hypotheses.md`.
+
+Terminé quand : sur `DEMO_SIMPLE`, `DEMO_COMPLEXE` et l'export du tutoriel Dataiku Cloud, chaque dataset reçoit une décision et un statut Federation explicites ; les notebooks de copie s'exécutent deux fois sur PySpark local sans doublon ; la validation détecte un schéma, un type et une partition faux ; les étapes portent le nom de leur recette principale ; tests verts et `ruff` propre.
+
+---
+
+## Phase 12 — Lecteur par API Dataiku
+
+**Objectif :** lire un projet directement sur l'instance Dataiku, sans export ZIP fait à la main.
+
+Tâches :
+1. Implémenter `reader/api_reader.py` (interface prévue en phase 1), en lecture seule ; la clé est lue dans une variable d'environnement, jamais affichée ni écrite.
+2. Commandes `dku2dbx list` (projets de l'instance) et `--api PROJET` sur les commandes qui lisent un export.
+3. **Comparaison complète API / ZIP** : sur un même projet, l'intégralité des métadonnées et des configurations extraites (datasets, recettes, payloads, steps Prepare, scénarios, variables, zones, partitions, schémas, objets exposés et étrangers) doit être identique ; chaque différence est listée champ par champ.
+
+Terminé quand : sur l'instance d'essai Dataiku Cloud, la comparaison API / ZIP ne montre aucune différence non expliquée, et les tests (faux client) sont verts.
+
+---
+
+## Phase 13 — Pilotage par agent IA (MCP), après validation du pilote
+
+**Objectif :** piloter la migration en langage naturel, sans remplacer le moteur déterministe.
+
+Tâches :
+1. Un serveur MCP expose les commandes existantes comme outils (`analyze`, `simplify`, `connect`, `data`, `generate`, `residue`, `reconcile`).
+2. L'agent **appelle** ces outils : il ne traduit rien lui-même. Le moteur déterministe reste la source de vérité ; les règles 1, 2 et 5 de `CLAUDE.md` s'appliquent (LLM validé par la sécurité uniquement).
+
+Terminé quand : un parcours complet sur `DEMO_SIMPLE` est piloté par l'agent et produit exactement les mêmes fichiers que la CLI.
 
 ---
 
