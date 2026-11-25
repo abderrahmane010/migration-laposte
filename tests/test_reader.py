@@ -21,7 +21,6 @@ from dku2dbx.model import (
     Status,
 )
 from dku2dbx.model.flow import to_networkx
-from dku2dbx.reader.api_reader import DataikuApiReader
 from dku2dbx.reader.base import ProjectReader
 from dku2dbx.reader.zip_reader import ZipExportReader, read_export
 from tests.fixtures import make_fixture as mf
@@ -524,14 +523,6 @@ def test_zip_reader_interface() -> None:
     assert reader.read_project("DEMO_SIMPLE").key == "DEMO_SIMPLE"
     with pytest.raises(KeyError):
         reader.read_project("OTHER")
-
-
-def test_api_reader_is_an_interface_only() -> None:
-    reader: ProjectReader = DataikuApiReader()
-    with pytest.raises(NotImplementedError):
-        reader.list_projects()
-    with pytest.raises(NotImplementedError):
-        reader.read_project("ANY")
 
 
 def test_zip_entries_are_not_extracted(tmp_path: Path) -> None:

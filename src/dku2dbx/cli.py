@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -30,6 +31,9 @@ from dku2dbx.data.plan import plan_data
 from dku2dbx.errors import ExportReadError, ScoringConfigError
 from dku2dbx.generate.bundle import GenerateError, generate_job_bundle, write_bundle
 from dku2dbx.model.ir import Project
+from dku2dbx.reader.api_reader import ApiError, DataikuApiReader
+from dku2dbx.reader.compare import COMPARISON, compare_projects
+from dku2dbx.reader.compare import report_markdown as compare_report
 from dku2dbx.reader.zip_reader import ZipExportReader
 from dku2dbx.reconcile.config import ReconcileConfigError, load_reconcile_config
 from dku2dbx.reconcile.notebook import (
@@ -73,6 +77,20 @@ def main(
     """Usine de migration Dataiku DSS → Databricks."""
 
 
+def _read(
+    export: Path | None, api: str | None, instance_variables: dict[str, Any] | None = None
+) -> Project:
+    """The project of an export ZIP, or read by the Dataiku API (phase 12): same engine."""
+    if (export is None) == (api is None):
+        raise ExportReadError("donner soit un export ZIP, soit --api <clé du projet>")
+    if export is not None:
+        return ZipExportReader(export, instance_variables).read()
+    try:
+        return DataikuApiReader(instance_variables=instance_variables).read_project(str(api))
+    except KeyError as exc:
+        raise ApiError(f"projet {api} absent de l'instance Dataiku (ou non accessible)") from exc
+
+
 def _exports(path: Path) -> list[Path]:
     if path.is_dir():
         return sorted(p for p in path.iterdir() if p.suffix == ".zip" and p.is_file())
@@ -80,12 +98,15 @@ def _exports(path: Path) -> list[Path]:
 
 
 @app.command()
-def analyze(
-    export: Path = typer.Argument(
-        ...,
+def analyze(  # noqa: PLR0912 (one branch per source and option)
+    export: Path | None = typer.Argument(
+        None,
         exists=True,
         readable=True,
         help="Export ZIP d'un projet Dataiku, ou dossier d'exports ZIP (configuration seulement).",
+    ),
+    api: list[str] | None = typer.Option(
+        None, "--api", help="Lire ce projet par l'API Dataiku (clé, répétable)."
     ),
     out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
     dump_ir: bool = typer.Option(
@@ -103,17 +124,27 @@ def analyze(
     except ScoringConfigError as exc:
         typer.echo(f"Erreur de configuration : {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    exports = _exports(export)
-    if not exports:
+    if (export is None) == (not api):
+        typer.echo("Erreur : donner soit un export ou un dossier, soit --api <clé>", err=True)
+        raise typer.Exit(code=1)
+    sources: list[Path | str] = list(_exports(export)) if export is not None else list(api or [])
+    if not sources:
         typer.echo(f"Aucun export .zip dans {export}", err=True)
         raise typer.Exit(code=1)
 
     projects: list[Project] = []
     analyses: list[ProjectAnalysis] = []
     failed = 0
-    for path in exports:
+    for source in sources:
         try:
-            doc = ZipExportReader(path).read_document()
+            if isinstance(source, Path):
+                doc, name = ZipExportReader(source).read_document(), source.name
+            else:
+                doc, name = DataikuApiReader().read_document(source), f"API {source}"
+        except KeyError:
+            typer.echo(f"Erreur de lecture : projet {source} absent de l'instance", err=True)
+            failed += 1
+            continue
         except ExportReadError as exc:
             # One unreadable export does not stop the portfolio: it is reported.
             typer.echo(f"Erreur de lecture : {exc}", err=True)
@@ -121,11 +152,11 @@ def analyze(
             continue
         project = doc.project
         if any(p.key == project.key for p in projects):
-            typer.echo(f"Erreur : projet {project.key} présent deux fois ({path.name})", err=True)
+            typer.echo(f"Erreur : projet {project.key} présent deux fois ({name})", err=True)
             failed += 1
             continue
         projects.append(project)
-        analyses.append(analyze_project(project, path.name, config))
+        analyses.append(analyze_project(project, name, config))
         if dump_ir:
             target = out / project.key / "ir.json"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -162,9 +193,10 @@ def _print_project(project: Project, analysis: ProjectAnalysis) -> None:
 
 @app.command()
 def simplify(
-    export: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    export: Path | None = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
+    api: str | None = typer.Option(None, "--api", help="Lire le projet par l'API Dataiku (clé)."),
     out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
     no_fusion: bool = typer.Option(
         False, "--no-fusion", help="Une étape par recette (réconciliation fine, débogage)."
@@ -172,7 +204,7 @@ def simplify(
 ) -> None:
     """Simplifier : fusionner les chaînes de recettes en étapes (phase 5)."""
     try:
-        project = ZipExportReader(export).read()
+        project = _read(export, api)
         flow = simplify_flow(project, fusion=not no_fusion)
     except (ExportReadError, SimplifyError) as exc:
         typer.echo(f"Erreur : {exc}", err=True)
@@ -188,14 +220,15 @@ def simplify(
 
 @app.command()
 def translate(
-    export: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    export: Path | None = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
+    api: str | None = typer.Option(None, "--api", help="Lire le projet par l'API Dataiku (clé)."),
     out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
 ) -> None:
     """Migrer : traduire les recettes en Spark SQL (.sql par sortie) ou en Python (.py)."""
     try:
-        project = ZipExportReader(export).read()
+        project = _read(export, api)
     except ExportReadError as exc:
         typer.echo(f"Erreur de lecture : {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -217,9 +250,10 @@ def translate(
 
 @app.command()
 def generate(  # noqa: PLR0913, PLR0917 (one option per input)
-    export: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    export: Path | None = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
+    api: str | None = typer.Option(None, "--api", help="Lire le projet par l'API Dataiku (clé)."),
     target: str = typer.Option("job", "--target", help="job (notebooks SQL) ou pipeline."),
     out: Path | None = typer.Option(
         None, "--out", help="Dossier du bundle (défaut : out/<projet>/bundle)."
@@ -238,7 +272,7 @@ def generate(  # noqa: PLR0913, PLR0917 (one option per input)
         raise typer.Exit(code=1)
     try:
         config, source = load_connections(connections)
-        project = ZipExportReader(export, config.instance_variables).read()
+        project = _read(export, api, config.instance_variables)
         branching = branch_sources(project, config, source)
         data_plan = plan_data(project, *load_data_config(data_config), branching)
         copies = {d.dataset: copy_notebook(data_plan, d) for d in data_plan.copies}
@@ -268,10 +302,11 @@ def generate(  # noqa: PLR0913, PLR0917 (one option per input)
 
 
 @app.command()
-def connect(
-    export: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+def connect(  # noqa: PLR0913, PLR0917 (one option per input)
+    export: Path | None = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
+    api: str | None = typer.Option(None, "--api", help="Lire le projet par l'API Dataiku (clé)."),
     connections: Path | None = typer.Option(
         None,
         "--connections",
@@ -286,7 +321,7 @@ def connect(
     """Brancher : associer les sources Dataiku aux tables Unity Catalog (phase 7)."""
     try:
         config, source = load_connections(connections)
-        project = ZipExportReader(export, config.instance_variables).read()
+        project = _read(export, api, config.instance_variables)
     except (ExportReadError, ConnectionsError) as exc:
         typer.echo(f"Erreur : {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -307,9 +342,10 @@ def connect(
 
 @app.command()
 def residue(
-    export: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    export: Path | None = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
+    api: str | None = typer.Option(None, "--api", help="Lire le projet par l'API Dataiku (clé)."),
     llm_config: Path | None = typer.Option(
         None,
         "--llm-config",
@@ -324,7 +360,7 @@ def residue(
     try:
         config = load_llm_config(llm_config)
         mapping, mapping_source = load_connections(connections)
-        project = ZipExportReader(export, mapping.instance_variables).read()
+        project = _read(export, api, mapping.instance_variables)
     except (ExportReadError, ConnectionsError, LLMConfigError) as exc:
         typer.echo(f"Erreur : {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -347,9 +383,10 @@ def residue(
 
 @app.command()
 def reconcile(
-    export: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    export: Path | None = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
+    api: str | None = typer.Option(None, "--api", help="Lire le projet par l'API Dataiku (clé)."),
     config_path: Path | None = typer.Option(
         None,
         "--config",
@@ -360,7 +397,7 @@ def reconcile(
     """Réconcilier : générer le notebook qui compare les sorties Dataiku et Databricks (phase 9)."""
     try:
         config, source = load_reconcile_config(config_path)
-        project = ZipExportReader(export).read()
+        project = _read(export, api)
         plan = plan_reconciliation(project, config, source)
     except (ExportReadError, ReconcileConfigError, SimplifyError) as exc:
         typer.echo(f"Erreur : {exc}", err=True)
@@ -380,9 +417,10 @@ def reconcile(
 
 @app.command()
 def data(  # noqa: PLR0913, PLR0917 (one option per input)
-    export: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
+    export: Path | None = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True, help="Export ZIP d'un projet Dataiku."
     ),
+    api: str | None = typer.Option(None, "--api", help="Lire le projet par l'API Dataiku (clé)."),
     data_config: Path | None = typer.Option(
         None, "--data", help="Accès aux données (défaut : config/data.local.yaml, sinon data.yaml)."
     ),
@@ -408,7 +446,7 @@ def data(  # noqa: PLR0913, PLR0917 (one option per input)
     try:
         mapping, mapping_source = load_connections(connections)
         config, source = load_data_config(data_config)
-        project = ZipExportReader(export, mapping.instance_variables).read()
+        project = _read(export, api, mapping.instance_variables)
         branching = branch_sources(project, mapping, mapping_source)
         plan = plan_data(project, config, source, branching)
     except (ExportReadError, ConnectionsError, DataConfigError) as exc:
@@ -429,6 +467,51 @@ def data(  # noqa: PLR0913, PLR0917 (one option per input)
     typer.echo(f"Rapport dans {folder / DATA_REPORT} (configuration {source})")
     if permissions and any(permissions.values()):
         typer.echo("Droits manquants : voir la section Permissions du rapport.")
+        raise typer.Exit(code=1)
+
+
+@app.command(name="list")
+def list_projects() -> None:
+    """Lister les projets lisibles par l'API Dataiku (phase 12, lecture seule)."""
+    try:
+        keys = DataikuApiReader().list_projects()
+    except ExportReadError as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{len(keys)} projet(s) :")
+    for key in keys:
+        typer.echo(f"  - {key}")
+
+
+@app.command()
+def compare(
+    project_key: str = typer.Argument(..., help="Clé du projet sur l'instance Dataiku."),
+    export: Path = typer.Option(
+        ..., "--zip", exists=True, dir_okay=False, readable=True, help="Export ZIP du projet."
+    ),
+    out: Path = typer.Option(Path("out"), "--out", help="Dossier de sortie."),
+) -> None:
+    """Comparer champ par champ le projet lu par l'API et lu depuis son export (phase 12)."""
+    try:
+        from_zip = ZipExportReader(export).read()
+        from_api = _read(None, project_key)
+    except ExportReadError as exc:
+        typer.echo(f"Erreur : {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    differences = compare_projects(from_zip, from_api)
+    unexplained = [d for d in differences if d.explanation is None]
+    target = out / project_key / COMPARISON
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(compare_report(project_key, export.name, differences).encode("utf-8"))
+    typer.echo(
+        f"Projet {project_key} : {len(differences)} différence(s), dont "
+        f"{len(unexplained)} non expliquée(s). Rapport dans {target}"
+    )
+    for d in unexplained[:20]:
+        typer.echo(f"  - {d.path}")
+    if from_zip.key != project_key:
+        typer.echo(f"Attention : l'export est celui du projet {from_zip.key}", err=True)
+    if unexplained or from_zip.key != project_key:
         raise typer.Exit(code=1)
 
 
