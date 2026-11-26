@@ -521,3 +521,13 @@ Phase 11 validée par le responsable le 2026-11-25 (554 tests passés). Limitati
 
 - Phase 12 validée par le responsable, y compris le correctif de lecture des exports DSS 15. Les 4 commits sont poussés sur la branche `phase-12-api-reader`.
 - H-72 et H-73 restent **ouvertes**. Condition pour déclarer la couverture API complète : un test réel, sur un projet contenant au minimum une zone, un scénario et une variable, dont les lectures API et ZIP sont comparées avec `dku2dbx compare`.
+
+### Premier test réel de la lecture par l'API (2026-11-26)
+
+- Projet La Poste réel (instance interne DSS 15), comparaison `dku2dbx compare` : 18 différences, dont **4 non expliquées**, toutes sur 2 recettes. **Aucune sur les zones, les scénarios, les variables ou les objets partagés.**
+- Trois hypothèses corrigées (relevé anonyme, aucun contenu du projet dans Git) :
+  - H-70 : un export écrit le fichier de payload **même vide** (vu pour une recette Sync et une recette de plugin) ; le lecteur API l'écrit dès que l'API renvoie un payload.
+  - H-14 : le payload d'une recette de plugin s'appelle `<nom>.<type>`, et non `<nom>.json.payload` (supposition issue de la fixture synthétique, corrigée).
+  - H-71 : `containerSelection = {containerMode: INHERIT}`, valeur par défaut que le moteur ne lit pas, est écrit ou omis irrégulièrement par les deux sources ; le constructeur commun le retire pour les deux (option A validée par le responsable), toute autre valeur est conservée.
+- Non-régression : le modèle interne lu par le ZIP est identique pour `DEMO_SIMPLE` et l'export du tutoriel ; pour `DEMO_COMPLEXE`, seul change le nom du payload de la recette de plugin (fixture corrigée).
+- À faire : relancer la comparaison sur le projet réel après mise à jour ; H-72 et H-73 restent ouvertes tant que la présence d'une zone, d'un scénario et d'une variable dans ce projet n'est pas confirmée.

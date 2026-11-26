@@ -63,10 +63,10 @@ class FakeDataiku:
         }
 
     @staticmethod
-    def _payload(files: dict[str, bytes], name: str) -> str:
+    def _payload(files: dict[str, bytes], name: str) -> str | None:
         prefix = f"project_config/recipes/{name}."
         found = [v for n, v in files.items() if n.startswith(prefix) and n != prefix + "json"]
-        return found[0].decode("utf-8") if found else ""
+        return found[0].decode("utf-8") if found else None
 
     def _answer(self, path: str) -> Any:  # noqa: PLR0911, PLR0912 (one branch per endpoint)
         if path in self.overrides:
@@ -235,7 +235,8 @@ def test_payload_files_are_named_as_in_an_export() -> None:
     assert "project_config/recipes/python_scoring.py" in names
     assert "project_config/recipes/sql_anomaly_report.sql" in names
     assert "project_config/recipes/prepare_events.shaker" in names
-    assert any(n.endswith(".json.payload") for n in names)  # plugin recipe (H-14)
+    # plugin recipe: "<name>.<type>", as in a real DSS 15 export (H-14, H-70)
+    assert "project_config/recipes/plugin_geocode.CustomCode_geo-toolkit-geocode" in names
     manifest = json.loads(entries["export-manifest.json"])
     assert manifest["originalProjectKey"] == "DEMO_COMPLEXE"
     assert manifest["foreignObjects"] == [
@@ -392,3 +393,65 @@ def test_cli_without_credentials_explains_how(monkeypatch: pytest.MonkeyPatch) -
     result = CliRunner().invoke(app, ["list"])
     assert result.exit_code == 1
     assert "DATAIKU_URL et DATAIKU_API_KEY" in result.output
+
+
+def _real_export_shapes(tmp_path: Path) -> Path:
+    """DEMO_SIMPLE plus the shapes seen on a real DSS 15 export (real project, 2026-11-26):
+
+    an empty payload file for a Sync recipe and for a plugin recipe, and a default
+    container setting written by the export but not returned by the API.
+    """
+    p = mf.build_demo_simple()
+    p.add_dataset(mf.dataset(p.key, "orders_copy", cols=mf.columns("x:string")))
+    p.add_dataset(mf.dataset(p.key, "orders_ext", cols=mf.columns("x:string")))
+    sync = mf.recipe(
+        p.key, "copy_orders", "sync", [mf.ref("orders_raw")], [mf.out_ref("orders_copy")]
+    )
+    sync["params"] = {"engineParams": {"containerSelection": {"containerMode": "INHERIT"}}}
+    plugin_type = "CustomCode_hive-tools-external-table"
+    plugin = mf.recipe(
+        p.key, "ext_table", plugin_type, [mf.ref("orders_raw")], [mf.out_ref("orders_ext")]
+    )
+    p.add_recipe(sync, {})
+    p.add_recipe(plugin, {})
+    files = p.files()
+    files["project_config/recipes/copy_orders.sync"] = b""
+    files[f"project_config/recipes/ext_table.{plugin_type}"] = b""
+    path = tmp_path / "real_shapes.zip"
+    path.write_bytes(mf.zip_bytes(files))
+    return path
+
+
+def test_real_export_shapes_give_the_same_internal_representation(tmp_path: Path) -> None:
+    zip_path = _real_export_shapes(tmp_path)
+    fake = FakeDataiku(zip_path)
+    # The API leaves the default container setting out for this recipe (seen on a real project).
+    answer = fake._answer("/projects/DEMO_SIMPLE/recipes/copy_orders")
+    del answer["recipe"]["params"]["engineParams"]["containerSelection"]
+    fake.overrides["/projects/DEMO_SIMPLE/recipes/copy_orders"] = answer
+    entries = export_entries(DataikuApi(fake), "DEMO_SIMPLE")
+    # Empty payloads are written, plugin payloads are named "<name>.<type>" (H-70).
+    assert entries["project_config/recipes/copy_orders.sync"] == b""
+    assert entries["project_config/recipes/ext_table.CustomCode_hive-tools-external-table"] == b""
+    from_api = DataikuApiReader(DataikuApi(fake)).read_project("DEMO_SIMPLE")
+    from_zip = read_export(zip_path)
+    differences = compare_projects(from_zip, from_api)
+    assert [d.path for d in differences if d.explanation is None] == []
+    recipe = next(r for r in from_zip.recipes if r.name == "copy_orders")
+    assert recipe.payload_path == "project_config/recipes/copy_orders.sync"
+    assert "containerSelection" not in recipe.params["engineParams"]
+
+
+def test_only_the_default_container_setting_is_removed(tmp_path: Path) -> None:
+    p = mf.build_demo_simple()
+    p.add_dataset(mf.dataset(p.key, "orders_copy", cols=mf.columns("x:string")))
+    sync = mf.recipe(
+        p.key, "copy_orders", "sync", [mf.ref("orders_raw")], [mf.out_ref("orders_copy")]
+    )
+    explicit = {"containerMode": "EXPLICIT_CONTAINER", "containerConf": "k8s-small"}
+    sync["params"] = {"engineParams": {"containerSelection": explicit, "engineType": "DSS"}}
+    p.add_recipe(sync, {})
+    path = tmp_path / "explicit.zip"
+    path.write_bytes(mf.zip_bytes(p.files()))
+    recipe = next(r for r in read_export(path).recipes if r.name == "copy_orders")
+    assert recipe.params["engineParams"] == {"containerSelection": explicit, "engineType": "DSS"}

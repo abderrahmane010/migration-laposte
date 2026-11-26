@@ -32,7 +32,7 @@ from typing import Any
 from dku2dbx import __version__
 from dku2dbx.errors import ExportReadError
 from dku2dbx.model.ir import IrDocument, IrMeta, Project
-from dku2dbx.reader.known_types import CODE_RECIPE_TYPES, PLUGIN_RECIPE_PREFIX
+from dku2dbx.reader.known_types import CODE_RECIPE_TYPES
 from dku2dbx.reader.zip_reader import CONFIG_DIR, MANIFEST, build_project
 
 API_URL_ENV = "DATAIKU_URL"
@@ -44,8 +44,9 @@ Transport = Callable[[str], bytes]
 """GET of a path under ``/public/api`` -> response body; raises ``ApiError``."""
 
 # ASSUMPTION (H-70): payload file of a recipe in an export: "<name>.<type>" for a visual
-# recipe (seen: .shaker, .sampling), a language extension for code (seen: pyspark ->
-# .py), "<name>.json.payload" for a plugin recipe (H-14); written only when not empty.
+# or plugin recipe (seen: .shaker, .sampling, .sync, .CustomCode_<plugin>-<recipe>), a
+# language extension for code (seen: pyspark -> .py); written even when empty (seen:
+# sync and plugin recipes of a real DSS 15 export).
 CODE_EXTENSIONS = {
     "python": "py",
     "pyspark": "py",
@@ -70,7 +71,6 @@ API_ONLY_KEYS = {
 API_DEFAULTS = {
     "recipes": (
         (("hashPropagationBehavior",), "INHERIT"),
-        (("params", "engineParams", "containerSelection"), {"containerMode": "INHERIT"}),
         (("params", "selection", "ascending"), True),
     ),
 }
@@ -167,8 +167,6 @@ def _dump(obj: Any) -> bytes:
 def _payload_name(name: str, rtype: str) -> str:
     if rtype in CODE_RECIPE_TYPES or rtype in CODE_EXTENSIONS:
         return f"{name}.{CODE_EXTENSIONS.get(rtype, rtype)}"
-    if rtype.startswith(PLUGIN_RECIPE_PREFIX):
-        return f"{name}.json.payload"
     return f"{name}.{rtype}"
 
 
@@ -209,10 +207,10 @@ def export_entries(api: DataikuApi, key: str) -> dict[str, bytes]:
     for item in api.json(base + "/recipes/"):
         name = str(item["name"])
         answer = api.json(f"{base}/recipes/{_quote(name)}")
-        recipe, payload = answer["recipe"], answer.get("payload") or ""
+        recipe, payload = answer["recipe"], answer.get("payload")
         recipes.append(recipe)
         entries[f"{CONFIG_DIR}recipes/{name}.json"] = _dump(_drop(recipe, "recipes"))
-        if payload:
+        if isinstance(payload, str):
             rel = f"{CONFIG_DIR}recipes/{_payload_name(name, str(recipe.get('type', '')))}"
             entries[rel] = payload.encode("utf-8")
     # ASSUMPTION (H-73): scenarios, flow zones and saved models are read as

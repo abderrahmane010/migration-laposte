@@ -427,8 +427,12 @@ class Project:
                 files[f"project_config/recipes/{name}.{ext}"] = payload.encode("utf-8")
             elif rtype in VISUAL_PAYLOAD_EXT:
                 files[f"project_config/recipes/{name}.{VISUAL_PAYLOAD_EXT[rtype]}"] = _json(payload)
+            elif rtype.startswith("CustomCode_"):
+                # ASSUMPTION (H-14): a plugin recipe keeps its settings in "<name>.<type>",
+                # as seen on a real DSS 15 export.
+                files[f"project_config/recipes/{name}.{rtype}"] = _json(payload)
             else:
-                # ASSUMPTION (H-14): plugin recipes keep their settings in a .json payload.
+                # ASSUMPTION: other recipe types (ML...) keep a .json payload.
                 files[f"project_config/recipes/{name}.json.payload"] = _json(payload)
         for sc in self.scenarios:
             # ASSUMPTION (H-15): scenarios in project_config/scenarios/<id>.json.

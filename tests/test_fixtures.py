@@ -84,7 +84,7 @@ def test_every_recipe_has_its_payload(key: str) -> None:
                 assert f"{base}.{CODE_PAYLOAD_EXT[rtype]}" in names
             else:
                 assert rtype.startswith("CustomCode_")
-                assert f"{base}.json.payload" in names
+                assert f"{base}.{rtype}" in names
 
 
 @pytest.mark.parametrize("key", list(PROJECTS))

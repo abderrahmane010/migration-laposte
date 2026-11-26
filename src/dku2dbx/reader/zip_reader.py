@@ -67,6 +67,25 @@ CONFIG_DIR = "project_config/"
 MAX_ENTRY_BYTES = 64 * 1024 * 1024
 
 
+DEFAULT_CONTAINER = {"containerMode": "INHERIT"}
+
+
+def _without_default_container(params: dict[str, Any]) -> dict[str, Any]:
+    """Params without engineParams.containerSelection when it is the default.
+
+    ASSUMPTION (H-71): {"containerMode": "INHERIT"} is the default container setting,
+    written or left out irregularly by both an export and the API (seen on DSS 15). It is
+    removed so that both sources give the same recipe; the engine never reads it.
+    """
+    engine = params.get("engineParams")
+    if not isinstance(engine, dict) or engine.get("containerSelection") != DEFAULT_CONTAINER:
+        return params
+    return {
+        **params,
+        "engineParams": {k: v for k, v in engine.items() if k != "containerSelection"},
+    }
+
+
 class _Archive:
     """ZIP access with bookkeeping of the entries actually interpreted."""
 
@@ -349,7 +368,7 @@ class _ProjectBuilder:
                 name,
                 f"recipe type '{rtype}' is unknown; definition and payload kept as-is",
             )
-        params = _as_dict(data.get("params"))
+        params = _without_default_container(_as_dict(data.get("params")))
         # ASSUMPTION (H-22): selected engine in params.engineParams.engineType.
         engine = _opt_str(_as_dict(params.get("engineParams")).get("engineType"))
 

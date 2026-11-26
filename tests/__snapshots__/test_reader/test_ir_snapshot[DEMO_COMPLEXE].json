@@ -3,7 +3,7 @@
     "generator": "dku2dbx",
     "generator_version": "0.0.1",
     "source_file": "DEMO_COMPLEXE.zip",
-    "source_sha256": "79dba009b745f451a61c98495c1272185d5cc7ed8947b4459f63211c98f539c2"
+    "source_sha256": "5912c96d9f045465722930c4f638efbbd50957f19516dfa86e392f4b7b43f92b"
   },
   "project": {
     "datasets": [
@@ -2752,7 +2752,7 @@
             "output_column": "geo_point"
           }
         },
-        "payload_path": "project_config/recipes/plugin_geocode.json.payload",
+        "payload_path": "project_config/recipes/plugin_geocode.CustomCode_geo-toolkit-geocode",
         "payload_raw": null,
         "plugin_id": "geo-toolkit",
         "prepare_steps": null,
