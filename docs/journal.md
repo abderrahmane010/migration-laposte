@@ -516,3 +516,8 @@ Phase 11 validée par le responsable le 2026-11-25 (554 tests passés). Limitati
 - Le projet d'essai n'a ni scénario, ni zone, ni modèle enregistré, ni objet partagé, ni variable : ces lectures ne sont vérifiées qu'avec la fausse API (H-72, H-73). À comparer sur un projet qui en a, ou sur un projet La Poste (`dku2dbx compare`, sans aucun envoi externe).
 - Les hash `source_sha256` diffèrent entre les deux sources (mise en page du JSON de l'export) : les en-têtes des fichiers générés indiquent donc la source réellement lue.
 - L'application (phase 10) ne lit pas encore par l'API.
+
+### Validation (2026-11-26)
+
+- Phase 12 validée par le responsable, y compris le correctif de lecture des exports DSS 15. Les 4 commits sont poussés sur la branche `phase-12-api-reader`.
+- H-72 et H-73 restent **ouvertes**. Condition pour déclarer la couverture API complète : un test réel, sur un projet contenant au minimum une zone, un scénario et une variable, dont les lectures API et ZIP sont comparées avec `dku2dbx compare`.

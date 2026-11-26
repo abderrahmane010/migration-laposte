@@ -296,6 +296,8 @@ Tâches :
 
 Terminé quand : sur l'instance d'essai Dataiku Cloud, la comparaison API / ZIP ne montre aucune différence non expliquée, et les tests (faux client) sont verts.
 
+**Phase 12 validée le 2026-11-26.** H-72 et H-73 restent des hypothèses ouvertes : la couverture API n'est pas déclarée complète tant qu'un test réel n'a pas comparé (`dku2dbx compare`) les lectures API et ZIP d'un projet Dataiku contenant au minimum une zone, un scénario et une variable.
+
 ---
 
 ## Phase 13 — Pilotage par agent IA (MCP), après validation du pilote
