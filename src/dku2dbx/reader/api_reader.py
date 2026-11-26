@@ -31,7 +31,7 @@ from typing import Any
 
 from dku2dbx import __version__
 from dku2dbx.errors import ExportReadError
-from dku2dbx.model.ir import IrDocument, IrMeta, Project
+from dku2dbx.model.ir import IrDocument, IrMeta, Issue, IssueKind, ObjectKind, Project
 from dku2dbx.reader.known_types import CODE_RECIPE_TYPES
 from dku2dbx.reader.zip_reader import CONFIG_DIR, MANIFEST, build_project
 
@@ -79,6 +79,11 @@ API_DEFAULTS = {
 class ApiError(ExportReadError):
     """The Dataiku API cannot be read (configuration, network, rights, answer)."""
 
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        """HTTP status of the answer, when the instance answered."""
+
 
 def http_transport(
     url: str, api_key: str, *, ca_bundle: str | None = None, use_env_proxy: bool = False
@@ -106,7 +111,9 @@ def http_transport(
                 return body
         except urllib.error.HTTPError as exc:
             hint = {401: " (clé refusée)", 403: " (droits insuffisants)", 404: " (introuvable)"}
-            raise ApiError(f"GET {path}: HTTP {exc.code}{hint.get(exc.code, '')}") from None
+            raise ApiError(
+                f"GET {path}: HTTP {exc.code}{hint.get(exc.code, '')}", status=exc.code
+            ) from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise ApiError(f"GET {path}: instance Dataiku injoignable ({exc})") from None
 
@@ -170,9 +177,46 @@ def _payload_name(name: str, rtype: str) -> str:
     return f"{name}.{rtype}"
 
 
-def _foreign_objects(recipes: list[dict[str, Any]]) -> list[dict[str, str]]:
-    # ASSUMPTION (H-72): the foreignObjects of an export are the datasets of other
-    # projects its recipes read ("PROJECT.dataset").
+UNREADABLE_STATUSES = (403, 404)
+"""Answers of a project the key may not read: its shares are then unknown."""
+
+
+def _shared_with(
+    api: DataikuApi, key: str, projects: list[str]
+) -> tuple[set[tuple[str, str, str]], int]:
+    """Objects other projects share with ``key`` on its Flow, and the unreadable projects.
+
+    ASSUMPTION (H-72): the foreignObjects of an export are the objects other projects
+    expose to it with ``appearOnFlow`` (seen on a real DSS 15 instance, 2026-11-26: a
+    shared dataset read by no recipe is listed), read in the exposedObjects of their
+    settings: {objects: [{type, localName, rules: [{targetProject, appearOnFlow}]}]}.
+    """
+    shared: set[tuple[str, str, str]] = set()
+    unreadable = 0
+    for other in projects:
+        if other == key:
+            continue
+        try:
+            settings = api.json(api.project(other) + "/settings")
+        except ApiError as exc:
+            if exc.status not in UNREADABLE_STATUSES:
+                raise
+            unreadable += 1
+            continue
+        for obj in (settings.get("exposedObjects") or {}).get("objects") or []:
+            if any(
+                rule.get("targetProject") == key and rule.get("appearOnFlow") is True
+                for rule in obj.get("rules") or []
+            ):
+                shared.add((other, str(obj.get("type", "")), str(obj.get("localName", ""))))
+    return shared, unreadable
+
+
+def _foreign_objects(
+    recipes: list[dict[str, Any]], shared: set[tuple[str, str, str]]
+) -> list[dict[str, str]]:
+    """Shared objects on the Flow (H-72), plus the datasets of other projects the
+    recipes read ("PROJECT.dataset"), in case a share is not visible."""
     refs = {
         str(item.get("ref", ""))
         for rcp in recipes
@@ -180,16 +224,21 @@ def _foreign_objects(recipes: list[dict[str, Any]]) -> list[dict[str, str]]:
         for item in (role or {}).get("items", [])
         if "." in str(item.get("ref", ""))
     }
-    return [
-        {"projectKey": ref.rpartition(".")[0], "type": "DATASET", "id": ref.rpartition(".")[2]}
-        for ref in sorted(refs)
-    ]
+    objects = shared | {(r.rpartition(".")[0], "DATASET", r.rpartition(".")[2]) for r in refs}
+    return [{"projectKey": p, "type": k, "id": i} for p, k, i in sorted(objects)]
 
 
 def export_entries(api: DataikuApi, key: str) -> dict[str, bytes]:
     """The entries of the export of ``key``, rebuilt from the API (H-70 to H-73)."""
+    return export_entries_with_gaps(api, key)[0]
+
+
+def export_entries_with_gaps(api: DataikuApi, key: str) -> tuple[dict[str, bytes], int]:
+    """The entries of the export of ``key``, and the number of other projects whose
+    settings could not be read (the shared objects may then be incomplete)."""
     base = api.project(key)
-    if key not in api.project_keys():
+    projects = api.project_keys()
+    if key not in projects:
         raise KeyError(key)
     entries: dict[str, bytes] = {}
     summary = api.json(base + "/")
@@ -215,7 +264,8 @@ def export_entries(api: DataikuApi, key: str) -> dict[str, bytes]:
             entries[rel] = payload.encode("utf-8")
     # ASSUMPTION (H-73): scenarios, flow zones and saved models are read as
     # /scenarios/<id>/, /flow/zones and /savedmodels/<id>, and stored as in an export
-    # (scenarios/, zones/, saved_models/). Not seen yet: the trial project has none.
+    # (scenarios/, zones/, saved_models/). Zones seen on a real project (2026-11-26);
+    # scenarios and saved models not seen yet.
     for item in api.json(base + "/scenarios/"):
         sid = str(item["id"])
         entries[f"{CONFIG_DIR}scenarios/{sid}.json"] = _dump(
@@ -228,6 +278,7 @@ def export_entries(api: DataikuApi, key: str) -> dict[str, bytes]:
         entries[f"{CONFIG_DIR}saved_models/{mid}.json"] = _dump(
             api.json(f"{base}/savedmodels/{_quote(mid)}")
         )
+    shared, unreadable = _shared_with(api, key, projects)
     info = api.json("/instance-info")
     entries[MANIFEST] = _dump(
         {
@@ -236,10 +287,10 @@ def export_entries(api: DataikuApi, key: str) -> dict[str, bytes]:
             "exportedWithPlugins": [
                 {"pluginId": p["id"], "version": p.get("version")} for p in api.json("/plugins/")
             ],
-            "foreignObjects": _foreign_objects(recipes),
+            "foreignObjects": _foreign_objects(recipes, shared),
         }
     )
-    return entries
+    return entries, unreadable
 
 
 class ApiEntries:
@@ -295,11 +346,24 @@ class DataikuApiReader:
         return self._read(project_key)[0]
 
     def _read(self, project_key: str) -> tuple[Project, str]:
-        entries = export_entries(self.api, project_key)
+        entries, unreadable = export_entries_with_gaps(self.api, project_key)
         digest = hashlib.sha256()
         for name in sorted(entries):  # hash of the rebuilt entries, as a ZIP hash
             digest.update(name.encode("utf-8") + b"\0" + entries[name] + b"\0")
         project = build_project(ApiEntries(project_key, entries), self.instance_variables)
+        if unreadable:
+            project.issues.append(
+                Issue(
+                    kind=IssueKind.FOREIGN_OBJECTS_INCOMPLETE,
+                    object_kind=ObjectKind.PROJECT,
+                    object_name=project_key,
+                    message=(
+                        f"{unreadable} autre(s) projet(s) de l'instance illisible(s) avec "
+                        "cette clé : les objets partagés avec ce projet peuvent être "
+                        "incomplets"
+                    ),
+                )
+            )
         return project, digest.hexdigest()
 
     def read_document(self, project_key: str) -> IrDocument:

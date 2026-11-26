@@ -32,7 +32,7 @@ from dku2dbx.errors import ExportReadError, ScoringConfigError
 from dku2dbx.generate.bundle import GenerateError, generate_job_bundle, write_bundle
 from dku2dbx.model.ir import Project
 from dku2dbx.reader.api_reader import ApiError, DataikuApiReader
-from dku2dbx.reader.compare import COMPARISON, compare_projects
+from dku2dbx.reader.compare import COMPARISON, compare_projects, incompleteness
 from dku2dbx.reader.compare import report_markdown as compare_report
 from dku2dbx.reader.zip_reader import ZipExportReader
 from dku2dbx.reconcile.config import ReconcileConfigError, load_reconcile_config
@@ -500,18 +500,25 @@ def compare(
         raise typer.Exit(code=1) from exc
     differences = compare_projects(from_zip, from_api)
     unexplained = [d for d in differences if d.explanation is None]
+    incomplete = incompleteness(from_api)
     target = out / project_key / COMPARISON
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(compare_report(project_key, export.name, differences).encode("utf-8"))
+    report = compare_report(project_key, export.name, differences, incomplete)
+    target.write_bytes(report.encode("utf-8"))
     typer.echo(
         f"Projet {project_key} : {len(differences)} différence(s), dont "
         f"{len(unexplained)} non expliquée(s). Rapport dans {target}"
     )
     for d in unexplained[:20]:
         typer.echo(f"  - {d.path}")
+    if incomplete:
+        typer.echo(
+            f"Attention : comparaison non concluante, lecture par l'API incomplète ({incomplete})",
+            err=True,
+        )
     if from_zip.key != project_key:
         typer.echo(f"Attention : l'export est celui du projet {from_zip.key}", err=True)
-    if unexplained or from_zip.key != project_key:
+    if unexplained or incomplete or from_zip.key != project_key:
         raise typer.Exit(code=1)
 
 

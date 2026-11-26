@@ -531,3 +531,11 @@ Phase 11 validée par le responsable le 2026-11-25 (554 tests passés). Limitati
   - H-71 : `containerSelection = {containerMode: INHERIT}`, valeur par défaut que le moteur ne lit pas, est écrit ou omis irrégulièrement par les deux sources ; le constructeur commun le retire pour les deux (option A validée par le responsable), toute autre valeur est conservée.
 - Non-régression : le modèle interne lu par le ZIP est identique pour `DEMO_SIMPLE` et l'export du tutoriel ; pour `DEMO_COMPLEXE`, seul change le nom du payload de la recette de plugin (fixture corrigée).
 - À faire : relancer la comparaison sur le projet réel après mise à jour ; H-72 et H-73 restent ouvertes tant que la présence d'une zone, d'un scénario et d'une variable dans ce projet n'est pas confirmée.
+
+### Objets partagés : correction de H-72 (2026-11-26)
+
+- Second test réel, sur un projet de test de l'instance interne : un dataset partagé par un autre projet, visible dans le Flow mais lu par aucune recette, figure dans les `foreignObjects` de l'export ; le lecteur API, qui les déduisait des recettes, ne le trouvait pas (1 différence non expliquée).
+- Correction validée par le responsable (option A) : le lecteur API lit les `exposedObjects` des réglages des autres projets de l'instance (`targetProject` égal à la clé, `appearOnFlow = true`) et garde en complément les datasets lus par les recettes. Le lecteur ZIP n'est pas modifié.
+- Un autre projet illisible (HTTP 403 ou 404) n'arrête pas la lecture : il est compté dans un avertissement `FOREIGN_OBJECTS_INCOMPLETE`, et `dku2dbx compare` déclare alors la comparaison **non concluante** (rapport et message, code de sortie 1), même sans différence non expliquée.
+- Coût : une requête par projet de l'instance pour chaque lecture par l'API.
+- H-73 : zones constatées sur le projet réel. Scénarios et variables restent à vérifier lors de la comparaison finale (projet de test complété par le responsable).

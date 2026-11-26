@@ -88,11 +88,23 @@ def _explain(path: str) -> str | None:
     return next((why for pattern, why in EXPLANATIONS if pattern.search(path)), None)
 
 
+APART = (IssueKind.UNPARSED_ENTRY.value, IssueKind.FOREIGN_OBJECTS_INCOMPLETE.value)
+
+
 def _without_unparsed_issue(data: dict[str, Any]) -> dict[str, Any]:
-    """The issue counting the unparsed entries is provenance too (it is compared apart)."""
+    """Issues compared apart: the unparsed entries (provenance) and the incomplete
+    shared objects of the API (a limit of the comparison, reported by ``incompleteness``)."""
     out = dict(data)
-    out["issues"] = [i for i in data["issues"] if i["kind"] != IssueKind.UNPARSED_ENTRY.value]
+    out["issues"] = [i for i in data["issues"] if i["kind"] not in APART]
     return out
+
+
+def incompleteness(from_api: Project) -> str | None:
+    """Why the comparison cannot be fully conclusive, if the API read was partial."""
+    messages = [
+        i.message for i in from_api.issues if i.kind is IssueKind.FOREIGN_OBJECTS_INCOMPLETE
+    ]
+    return "; ".join(messages) or None
 
 
 def compare_projects(from_zip: Project, from_api: Project) -> list[Difference]:
@@ -123,16 +135,26 @@ def _shown(value: Any) -> str:
     return "`" + text.replace("|", "\\|").replace("`", "'") + "`"
 
 
-def report_markdown(key: str, zip_name: str, differences: list[Difference]) -> str:
+def report_markdown(
+    key: str, zip_name: str, differences: list[Difference], incomplete: str | None = None
+) -> str:
     unexplained = [d for d in differences if d.explanation is None]
     explained = Counter(d.explanation for d in differences if d.explanation is not None)
-    verdict = (
-        "**Aucune différence non expliquée** : l'API et l'export donnent la même "
-        "représentation interne."
-        if not unexplained
-        else f"**{len(unexplained)} différence(s) non expliquée(s)** : à analyser avant "
-        "d'utiliser la lecture par l'API sur ce projet."
-    )
+    if unexplained:
+        verdict = (
+            f"**{len(unexplained)} différence(s) non expliquée(s)** : à analyser avant "
+            "d'utiliser la lecture par l'API sur ce projet."
+        )
+    elif incomplete:
+        verdict = (
+            "**Comparaison non concluante** : aucune différence non expliquée, mais la "
+            "lecture par l'API est incomplète, des objets partagés peuvent manquer."
+        )
+    else:
+        verdict = (
+            "**Aucune différence non expliquée** : l'API et l'export donnent la même "
+            "représentation interne."
+        )
     lines = [
         f"# Comparaison API / export ZIP — {key}",
         "",
@@ -144,6 +166,10 @@ def report_markdown(key: str, zip_name: str, differences: list[Difference]) -> s
         "",
         verdict,
         "",
+    ]
+    if incomplete:
+        lines += [f"> **Attention — lecture par l'API incomplète** : {incomplete}.", ""]
+    lines += [
         "## Différences non expliquées",
         "",
     ]

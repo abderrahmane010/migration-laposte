@@ -24,7 +24,7 @@ from dku2dbx.reader.api_reader import (
     transport_from_environment,
 )
 from dku2dbx.reader.base import ProjectReader
-from dku2dbx.reader.compare import compare_projects, report_markdown
+from dku2dbx.reader.compare import compare_projects, incompleteness, report_markdown
 from dku2dbx.reader.zip_reader import read_export
 from tests.fixtures import make_fixture as mf
 
@@ -48,6 +48,7 @@ class FakeDataiku:
                 files = {n: zf.read(n) for n in zf.namelist() if not n.endswith("/")}
             self.projects[self._key(files)] = files
         self.overrides: dict[str, Any] = {}
+        self.forbidden: set[str] = set()  # projects the key may not read (HTTP 403)
 
     @staticmethod
     def _key(files: dict[str, bytes]) -> str:
@@ -85,6 +86,8 @@ class FakeDataiku:
                 ]
             return plugins
         _, _, key, *rest = path.split("/")
+        if key in self.forbidden:
+            raise ApiError(f"GET {path}: HTTP 403 (droits insuffisants)", status=403)
         files = self.projects[key]
         params = json.loads(files["project_config/params.json"])
         sub = "/".join(rest)
@@ -118,7 +121,7 @@ class FakeDataiku:
             return list(self._objects(files, "zones").values())
         if sub == "savedmodels/":
             return []
-        raise ApiError(f"GET {path}: HTTP 404 (introuvable)")
+        raise ApiError(f"GET {path}: HTTP 404 (introuvable)", status=404)
 
     def __call__(self, path: str) -> bytes:
         self.calls.append(path)
@@ -455,3 +458,104 @@ def test_only_the_default_container_setting_is_removed(tmp_path: Path) -> None:
     path.write_bytes(mf.zip_bytes(p.files()))
     recipe = next(r for r in read_export(path).recipes if r.name == "copy_orders")
     assert recipe.params["engineParams"] == {"containerSelection": explicit, "engineType": "DSS"}
+
+
+def _shared_on_flow(tmp_path: Path) -> FakeDataiku:
+    """Case seen on a test project of an internal instance (2026-11-26): another project
+    shares a dataset with the project, shown on its Flow, and no recipe reads it."""
+    target = mf.build_demo_simple()
+    target.foreign_objects = [
+        {"projectKey": "SHARE_SRC", "type": "DATASET", "id": "web_last_month"}
+    ]
+    source = mf.Project(key="SHARE_SRC", name="Partage (synthétique)")
+    source.exposed_objects = [
+        {
+            "type": "DATASET",
+            "localName": "web_last_month",
+            "rules": [{"targetProject": "DEMO_SIMPLE", "appearOnFlow": True}],
+        },
+        {  # shared, but not shown on the Flow: not a foreign object of the export
+            "type": "DATASET",
+            "localName": "hidden",
+            "rules": [{"targetProject": "DEMO_SIMPLE", "appearOnFlow": False}],
+        },
+        {  # shown on the Flow of another project only
+            "type": "DATASET",
+            "localName": "elsewhere",
+            "rules": [{"targetProject": "DEMO_SIMPLE_2", "appearOnFlow": True}],
+        },
+    ]
+    other = mf.Project(key="NO_SHARE", name="Sans partage (synthétique)")
+    paths = []
+    for project in (target, source, other):
+        path = tmp_path / f"{project.key}.zip"
+        path.write_bytes(mf.zip_bytes(project.files()))
+        paths.append(path)
+    return FakeDataiku(*paths)
+
+
+def test_a_dataset_shared_on_the_flow_and_read_by_no_recipe_is_a_foreign_object(
+    tmp_path: Path,
+) -> None:
+    fake = _shared_on_flow(tmp_path)
+    from_zip = read_export(tmp_path / "DEMO_SIMPLE.zip")
+    assert not any("SHARE_SRC." in i.ref for r in from_zip.recipes for i in r.inputs)
+    from_api = DataikuApiReader(DataikuApi(fake)).read_project("DEMO_SIMPLE")
+    assert [(o.project_key, o.type, o.id) for o in from_api.foreign_objects] == [
+        ("SHARE_SRC", "DATASET", "web_last_month")
+    ]
+    differences = compare_projects(from_zip, from_api)
+    assert [d.path for d in differences if d.explanation is None] == []
+    assert incompleteness(from_api) is None
+    assert "Aucune différence non expliquée" in report_markdown("DEMO_SIMPLE", "x.zip", differences)
+
+
+def test_unreadable_projects_make_the_comparison_inconclusive(tmp_path: Path) -> None:
+    fake = _shared_on_flow(tmp_path)
+    from_zip = read_export(tmp_path / "DEMO_SIMPLE.zip")
+    # A project that shares nothing is unreadable: no difference, but not conclusive.
+    fake.forbidden = {"NO_SHARE"}
+    from_api = DataikuApiReader(DataikuApi(fake)).read_project("DEMO_SIMPLE")
+    issues = [i for i in from_api.issues if i.kind.value == "FOREIGN_OBJECTS_INCOMPLETE"]
+    assert len(issues) == 1
+    assert issues[0].message.startswith("1 autre(s) projet(s)")
+    differences = compare_projects(from_zip, from_api)
+    assert [d.path for d in differences if d.explanation is None] == []
+    incomplete = incompleteness(from_api)
+    assert incomplete is not None
+    report = report_markdown("DEMO_SIMPLE", "x.zip", differences, incomplete)
+    assert "Comparaison non concluante" in report
+    assert "lecture par l'API incomplète" in report
+    assert "Aucune différence non expliquée" not in report
+    # The sharing project is unreadable: the shared dataset is missing, and reported.
+    fake.forbidden = {"SHARE_SRC", "NO_SHARE"}
+    from_api = DataikuApiReader(DataikuApi(fake)).read_project("DEMO_SIMPLE")
+    unexplained = [d.path for d in compare_projects(from_zip, from_api) if d.explanation is None]
+    assert unexplained == ["foreign_objects[id=web_last_month]"]
+    assert "2 autre(s) projet(s)" in (incompleteness(from_api) or "")
+
+
+def test_other_api_errors_on_shares_are_not_hidden(tmp_path: Path) -> None:
+    fake = _shared_on_flow(tmp_path)
+
+    def failing(path: str) -> bytes:
+        if path == "/projects/NO_SHARE/settings":
+            raise ApiError(f"GET {path}: HTTP 500", status=500)
+        return fake(path)
+
+    with pytest.raises(ApiError, match="HTTP 500"):
+        DataikuApiReader(DataikuApi(failing)).read_project("DEMO_SIMPLE")
+
+
+def test_cli_compare_says_when_it_is_not_conclusive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "instance").mkdir()
+    shared = _shared_on_flow(tmp_path / "instance")
+    shared.forbidden = {"NO_SHARE"}
+    monkeypatch.setattr(api_reader, "transport_from_environment", lambda environ=None: shared)
+    args = ["compare", "DEMO_SIMPLE", "--zip", str(tmp_path / "instance" / "DEMO_SIMPLE.zip")]
+    result = CliRunner().invoke(app, [*args, "--out", str(tmp_path / "out")])
+    assert result.exit_code == 1
+    assert "dont 0 non expliquée(s)" in result.output
+    assert "comparaison non concluante" in result.output

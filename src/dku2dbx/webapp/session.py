@@ -86,6 +86,10 @@ ISSUE_HELP = {
     "MULTIPLE_PAYLOADS": "plusieurs fichiers de paramètres pour une recette",
     "INVALID_PAYLOAD": "fichier de paramètres illisible",
     "UNPARSED_ENTRY": "fichiers de l'export non utiles à la migration (dashboards, analyses…)",
+    "FOREIGN_OBJECTS_INCOMPLETE": (
+        "lecture par l'API : des projets de l'instance sont illisibles, les objets "
+        "partagés avec ce projet peuvent être incomplets ; comparer avec un export ZIP"
+    ),
     "FLOW_CYCLE": "cycle dans le Flow : le projet ne peut pas être ordonné",
 }
 
