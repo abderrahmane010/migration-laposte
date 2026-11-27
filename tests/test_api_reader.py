@@ -49,6 +49,7 @@ class FakeDataiku:
             self.projects[self._key(files)] = files
         self.overrides: dict[str, Any] = {}
         self.forbidden: set[str] = set()  # projects the key may not read (HTTP 403)
+        self.plugins_status: int | None = None  # HTTP error of /plugins/, if any
 
     @staticmethod
     def _key(files: dict[str, bytes]) -> str:
@@ -77,6 +78,10 @@ class FakeDataiku:
         if path == "/instance-info":
             return {"dssVersion": mf.DSS_VERSION}
         if path == "/plugins/":
+            if self.plugins_status is not None:
+                raise ApiError(
+                    f"GET {path}: HTTP {self.plugins_status}", status=self.plugins_status
+                )
             plugins = []
             for files in self.projects.values():
                 manifest = json.loads(files["export-manifest.json"])
@@ -559,3 +564,49 @@ def test_cli_compare_says_when_it_is_not_conclusive(
     assert result.exit_code == 1
     assert "dont 0 non expliquée(s)" in result.output
     assert "comparaison non concluante" in result.output
+
+
+def test_an_unreadable_plugin_list_makes_the_comparison_inconclusive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Listing the plugins needs administrator rights (H-74): the read goes on, the
+    # plugin fields are unverifiable, never guessed nor counted as unexplained.
+    fake = FakeDataiku(_zip("DEMO_COMPLEXE"))
+    fake.plugins_status = 403
+    manifest = json.loads(export_entries(DataikuApi(fake), "DEMO_COMPLEXE")["export-manifest.json"])
+    assert "exportedWithPlugins" not in manifest
+    from_zip = read_export(_zip("DEMO_COMPLEXE"))
+    assert from_zip.plugins and any(r.plugin_id for r in from_zip.recipes)
+    from_api = _reader(fake).read_project("DEMO_COMPLEXE")
+    assert [i.kind.value for i in from_api.issues].count("PLUGINS_UNREADABLE") == 1
+    differences = compare_projects(from_zip, from_api)
+    assert [d.path for d in differences if d.unexplained] == []
+    unverifiable = [d.path for d in differences if d.unverifiable]
+    assert any(p.startswith("plugins") for p in unverifiable)
+    assert all(p.startswith(("plugins", "recipes[", "issues[plugin")) for p in unverifiable)
+    incomplete = incompleteness(from_api)
+    assert incomplete is not None
+    assert "plugins" in incomplete
+    report = report_markdown("DEMO_COMPLEXE", "x.zip", differences, incomplete)
+    assert "Comparaison non concluante" in report
+    assert "## Différences non vérifiables" in report
+    # Everything else is still compared: a real difference stays unexplained.
+    from_api.zones = []
+    assert any(
+        d.path.startswith("zones") for d in compare_projects(from_zip, from_api) if d.unexplained
+    )
+    # The CLI says it and fails.
+    monkeypatch.setattr(api_reader, "transport_from_environment", lambda environ=None: fake)
+    args = ["compare", "DEMO_COMPLEXE", "--zip", str(_zip("DEMO_COMPLEXE"))]
+    result = CliRunner().invoke(app, [*args, "--out", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "dont 0 non expliquée(s)" in result.output
+    assert "non vérifiable(s)" in result.output
+    assert "comparaison non concluante" in result.output
+
+
+def test_other_api_errors_on_the_plugin_list_are_not_hidden() -> None:
+    fake = FakeDataiku(_zip("DEMO_COMPLEXE"))
+    fake.plugins_status = 500
+    with pytest.raises(ApiError, match="HTTP 500"):
+        _reader(fake).read_project("DEMO_COMPLEXE")

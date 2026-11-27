@@ -499,7 +499,8 @@ def compare(
         typer.echo(f"Erreur : {exc}", err=True)
         raise typer.Exit(code=1) from exc
     differences = compare_projects(from_zip, from_api)
-    unexplained = [d for d in differences if d.explanation is None]
+    unexplained = [d for d in differences if d.unexplained]
+    unverifiable = [d for d in differences if d.unverifiable is not None]
     incomplete = incompleteness(from_api)
     target = out / project_key / COMPARISON
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -511,6 +512,8 @@ def compare(
     )
     for d in unexplained[:20]:
         typer.echo(f"  - {d.path}")
+    if unverifiable:
+        typer.echo(f"{len(unverifiable)} différence(s) non vérifiable(s) : voir le rapport")
     if incomplete:
         typer.echo(
             f"Attention : comparaison non concluante, lecture par l'API incomplète ({incomplete})",

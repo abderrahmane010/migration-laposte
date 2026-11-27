@@ -3,8 +3,9 @@
 Every field of the internal representation is compared (datasets, recipes, payloads,
 Prepare steps, scenarios, variables, zones, partitions, schemas, exposed and foreign
 objects, plugins, flow, issues). Each difference is listed field by field, either as
-explained (provenance only, listed below) or as unexplained: the reader is reliable on
-a project when there is no unexplained difference.
+explained (provenance only, listed below), as unverifiable (a field the API key could
+not read, reported as such) or as unexplained: the reader is reliable on a project when
+there is no unexplained difference and the API read is complete.
 """
 
 from __future__ import annotations
@@ -30,6 +31,12 @@ EXPLANATIONS = (
         "tableaux de bord, analyses…), non lues par l'API",
     ),
 )
+UNVERIFIABLE_PLUGINS = re.compile(r"^plugins($|[.\[])|^recipes\[.*\]\.plugin_id$")
+"""Fields that depend on the plugin list of the instance (H-74)."""
+PLUGINS_UNKNOWN = (
+    "liste des plugins de l'instance illisible avec la clé API : plugins, versions et "
+    "plugin des recettes non vérifiables"
+)
 KEYS = ("name", "id", "plugin_id")
 COMPARISON = "comparaison_api_zip.md"
 
@@ -40,6 +47,12 @@ class Difference:
     zip_value: Any
     api_value: Any
     explanation: str | None = None
+    unverifiable: str | None = None
+    """Why the API side of this field is unknown (the key could not read it)."""
+
+    @property
+    def unexplained(self) -> bool:
+        return self.explanation is None and self.unverifiable is None
 
 
 def _unique_by(items: list[Any], key: str) -> bool:
@@ -88,34 +101,65 @@ def _explain(path: str) -> str | None:
     return next((why for pattern, why in EXPLANATIONS if pattern.search(path)), None)
 
 
-APART = (IssueKind.UNPARSED_ENTRY.value, IssueKind.FOREIGN_OBJECTS_INCOMPLETE.value)
+GAPS = (IssueKind.FOREIGN_OBJECTS_INCOMPLETE, IssueKind.PLUGINS_UNREADABLE)
+"""Limits of the API read, reported by ``incompleteness``."""
+APART = (IssueKind.UNPARSED_ENTRY.value, *(k.value for k in GAPS))
 
 
-def _without_unparsed_issue(data: dict[str, Any]) -> dict[str, Any]:
-    """Issues compared apart: the unparsed entries (provenance) and the incomplete
-    shared objects of the API (a limit of the comparison, reported by ``incompleteness``)."""
+def _plugin_issue(issue: dict[str, Any]) -> bool:
+    """A plugin recipe whose plugin is not in the (unknown) plugin list."""
+    return issue["kind"] == IssueKind.MISSING_REFERENCE.value and "exportedWithPlugins" in str(
+        issue.get("message")
+    )
+
+
+def _without_apart_issues(data: dict[str, Any], plugins_unknown: bool) -> dict[str, Any]:
+    """Issues compared apart: the unparsed entries (provenance), the limits of the API
+    read (reported by ``incompleteness``) and, when the plugin list is unknown, the
+    undeclared plugins (unverifiable)."""
     out = dict(data)
-    out["issues"] = [i for i in data["issues"] if i["kind"] not in APART]
+    out["issues"] = [
+        i
+        for i in data["issues"]
+        if i["kind"] not in APART and not (plugins_unknown and _plugin_issue(i))
+    ]
     return out
 
 
 def incompleteness(from_api: Project) -> str | None:
     """Why the comparison cannot be fully conclusive, if the API read was partial."""
-    messages = [
-        i.message for i in from_api.issues if i.kind is IssueKind.FOREIGN_OBJECTS_INCOMPLETE
-    ]
+    messages = [i.message for i in from_api.issues if i.kind in GAPS]
     return "; ".join(messages) or None
 
 
 def compare_projects(from_zip: Project, from_api: Project) -> list[Difference]:
     zip_data = json.loads(from_zip.model_dump_json())
     api_data = json.loads(from_api.model_dump_json())
+    plugins_unknown = any(i.kind is IssueKind.PLUGINS_UNREADABLE for i in from_api.issues)
+
+    def unverifiable(path: str) -> str | None:
+        return PLUGINS_UNKNOWN if plugins_unknown and UNVERIFIABLE_PLUGINS.search(path) else None
+
     differences = [
-        Difference(path, z, a, _explain(path))
+        Difference(path, z, a, _explain(path), unverifiable(path))
         for path, z, a in _walk(
-            _without_unparsed_issue(zip_data), _without_unparsed_issue(api_data), ""
+            _without_apart_issues(zip_data, plugins_unknown),
+            _without_apart_issues(api_data, plugins_unknown),
+            "",
         )
     ]
+    if plugins_unknown:
+        zip_plugin = [i for i in zip_data["issues"] if _plugin_issue(i)]
+        api_plugin = [i for i in api_data["issues"] if _plugin_issue(i)]
+        if zip_plugin != api_plugin:
+            differences.append(
+                Difference(
+                    "issues[plugin non déclaré]",
+                    zip_plugin,
+                    api_plugin,
+                    unverifiable=PLUGINS_UNKNOWN,
+                )
+            )
     zip_issue = [i for i in zip_data["issues"] if i["kind"] == IssueKind.UNPARSED_ENTRY.value]
     api_issue = [i for i in api_data["issues"] if i["kind"] == IssueKind.UNPARSED_ENTRY.value]
     if zip_issue != api_issue:
@@ -138,8 +182,9 @@ def _shown(value: Any) -> str:
 def report_markdown(
     key: str, zip_name: str, differences: list[Difference], incomplete: str | None = None
 ) -> str:
-    unexplained = [d for d in differences if d.explanation is None]
+    unexplained = [d for d in differences if d.unexplained]
     explained = Counter(d.explanation for d in differences if d.explanation is not None)
+    unverifiable = Counter(d.unverifiable for d in differences if d.unverifiable is not None)
     if unexplained:
         verdict = (
             f"**{len(unexplained)} différence(s) non expliquée(s)** : à analyser avant "
@@ -148,7 +193,7 @@ def report_markdown(
     elif incomplete:
         verdict = (
             "**Comparaison non concluante** : aucune différence non expliquée, mais la "
-            "lecture par l'API est incomplète, des objets partagés peuvent manquer."
+            "lecture par l'API est incomplète (voir l'avertissement ci-dessous)."
         )
     else:
         verdict = (
@@ -180,6 +225,12 @@ def report_markdown(
         ]
     else:
         lines.append("(aucune)")
+    if unverifiable:
+        lines += ["", "## Différences non vérifiables", ""]
+        lines += [f"- {count} champ(s) — {why}" for why, count in sorted(unverifiable.items())]
+        lines += ["", "<details><summary>Détail</summary>", ""]
+        lines += [f"- `{d.path}`" for d in differences if d.unverifiable is not None]
+        lines += ["", "</details>"]
     lines += ["", "## Différences expliquées", ""]
     if explained:
         lines += [f"- {count} champ(s) — {why}" for why, count in sorted(explained.items())]

@@ -539,3 +539,9 @@ Phase 11 validée par le responsable le 2026-11-25 (554 tests passés). Limitati
 - Un autre projet illisible (HTTP 403 ou 404) n'arrête pas la lecture : il est compté dans un avertissement `FOREIGN_OBJECTS_INCOMPLETE`, et `dku2dbx compare` déclare alors la comparaison **non concluante** (rapport et message, code de sortie 1), même sans différence non expliquée.
 - Coût : une requête par projet de l'instance pour chaque lecture par l'API.
 - H-73 : zones constatées sur le projet réel. Scénarios et variables restent à vérifier lors de la comparaison finale (projet de test complété par le responsable).
+
+### Liste des plugins illisible : H-74 (2026-11-27)
+
+- Comparaison finale lancée sur un projet de l'instance de **production** interne (zones, scénarios et variables présents dans l'export) avec une clé sans droits d'administration : la lecture par l'API échouait sur son dernier appel, `GET /plugins/` (HTTP 403). Les autres lectures (datasets, recettes, scénarios, zones, variables, partages) étaient passées.
+- Correction validée par le responsable : un refus (403 ou 404) n'arrête plus la lecture. Le manifeste reconstruit n'a pas de `exportedWithPlugins`, un avertissement `PLUGINS_UNREADABLE` est ajouté, et `dku2dbx compare` range les champs dépendant de la liste des plugins dans une section « Différences non vérifiables », sans les compter comme non expliquées ; la comparaison est déclarée **non concluante** (code de sortie 1). Toute autre erreur reste bloquante. Le lecteur ZIP n'est pas modifié.
+- Sur ce projet, aucune recette n'utilise de plugin : l'absence de la liste est sans effet sur sa migration.

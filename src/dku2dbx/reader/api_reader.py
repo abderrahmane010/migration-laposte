@@ -26,6 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -228,14 +229,40 @@ def _foreign_objects(
     return [{"projectKey": p, "type": k, "id": i} for p, k, i in sorted(objects)]
 
 
+def _installed_plugins(api: DataikuApi) -> list[dict[str, Any]] | None:
+    """The plugins of the instance as an export lists them, or None if the key may not
+    list them.
+
+    ASSUMPTION (H-74): listing the plugins needs administrator rights (HTTP 403 seen on
+    a real production instance with a non-administrator key, 2026-11-27). The list is
+    then unknown: it is reported, never guessed.
+    """
+    try:
+        plugins = api.json("/plugins/")
+    except ApiError as exc:
+        if exc.status not in UNREADABLE_STATUSES:
+            raise
+        return None
+    return [{"pluginId": p["id"], "version": p.get("version")} for p in plugins]
+
+
+@dataclass(frozen=True)
+class ReadGaps:
+    """What the key could not read: a comparison with an export is then not conclusive."""
+
+    unreadable_projects: int = 0
+    """Other projects whose settings are unreadable: shared objects may be missing."""
+    plugins_unreadable: bool = False
+    """The plugin list of the instance is unreadable: plugins and versions are unknown."""
+
+
 def export_entries(api: DataikuApi, key: str) -> dict[str, bytes]:
-    """The entries of the export of ``key``, rebuilt from the API (H-70 to H-73)."""
+    """The entries of the export of ``key``, rebuilt from the API (H-70 to H-74)."""
     return export_entries_with_gaps(api, key)[0]
 
 
-def export_entries_with_gaps(api: DataikuApi, key: str) -> tuple[dict[str, bytes], int]:
-    """The entries of the export of ``key``, and the number of other projects whose
-    settings could not be read (the shared objects may then be incomplete)."""
+def export_entries_with_gaps(api: DataikuApi, key: str) -> tuple[dict[str, bytes], ReadGaps]:
+    """The entries of the export of ``key``, and what could not be read."""
     base = api.project(key)
     projects = api.project_keys()
     if key not in projects:
@@ -280,17 +307,16 @@ def export_entries_with_gaps(api: DataikuApi, key: str) -> tuple[dict[str, bytes
         )
     shared, unreadable = _shared_with(api, key, projects)
     info = api.json("/instance-info")
-    entries[MANIFEST] = _dump(
-        {
-            "generatedWithDSSVersion": info.get("dssVersion"),
-            "originalProjectKey": key,
-            "exportedWithPlugins": [
-                {"pluginId": p["id"], "version": p.get("version")} for p in api.json("/plugins/")
-            ],
-            "foreignObjects": _foreign_objects(recipes, shared),
-        }
-    )
-    return entries, unreadable
+    plugins = _installed_plugins(api)
+    manifest: dict[str, Any] = {
+        "generatedWithDSSVersion": info.get("dssVersion"),
+        "originalProjectKey": key,
+    }
+    if plugins is not None:
+        manifest["exportedWithPlugins"] = plugins
+    manifest["foreignObjects"] = _foreign_objects(recipes, shared)
+    entries[MANIFEST] = _dump(manifest)
+    return entries, ReadGaps(unreadable, plugins is None)
 
 
 class ApiEntries:
@@ -346,21 +372,33 @@ class DataikuApiReader:
         return self._read(project_key)[0]
 
     def _read(self, project_key: str) -> tuple[Project, str]:
-        entries, unreadable = export_entries_with_gaps(self.api, project_key)
+        entries, gaps = export_entries_with_gaps(self.api, project_key)
         digest = hashlib.sha256()
         for name in sorted(entries):  # hash of the rebuilt entries, as a ZIP hash
             digest.update(name.encode("utf-8") + b"\0" + entries[name] + b"\0")
         project = build_project(ApiEntries(project_key, entries), self.instance_variables)
-        if unreadable:
+        if gaps.unreadable_projects:
             project.issues.append(
                 Issue(
                     kind=IssueKind.FOREIGN_OBJECTS_INCOMPLETE,
                     object_kind=ObjectKind.PROJECT,
                     object_name=project_key,
                     message=(
-                        f"{unreadable} autre(s) projet(s) de l'instance illisible(s) avec "
-                        "cette clé : les objets partagés avec ce projet peuvent être "
-                        "incomplets"
+                        f"{gaps.unreadable_projects} autre(s) projet(s) de l'instance "
+                        "illisible(s) avec cette clé : les objets partagés avec ce projet "
+                        "peuvent être incomplets"
+                    ),
+                )
+            )
+        if gaps.plugins_unreadable:
+            project.issues.append(
+                Issue(
+                    kind=IssueKind.PLUGINS_UNREADABLE,
+                    object_kind=ObjectKind.PROJECT,
+                    object_name=project_key,
+                    message=(
+                        "liste des plugins de l'instance illisible avec cette clé (droits "
+                        "d'administration requis) : plugins et versions inconnus"
                     ),
                 )
             )

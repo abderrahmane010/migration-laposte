@@ -90,6 +90,10 @@ ISSUE_HELP = {
         "lecture par l'API : des projets de l'instance sont illisibles, les objets "
         "partagés avec ce projet peuvent être incomplets ; comparer avec un export ZIP"
     ),
+    "PLUGINS_UNREADABLE": (
+        "lecture par l'API : la clé ne peut pas lister les plugins de l'instance "
+        "(droits d'administration) ; plugins et versions inconnus, comparer avec un export ZIP"
+    ),
     "FLOW_CYCLE": "cycle dans le Flow : le projet ne peut pas être ordonné",
 }
 
