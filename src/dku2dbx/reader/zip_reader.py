@@ -70,20 +70,23 @@ MAX_ENTRY_BYTES = 64 * 1024 * 1024
 DEFAULT_CONTAINER = {"containerMode": "INHERIT"}
 
 
-def _without_default_container(params: dict[str, Any]) -> dict[str, Any]:
-    """Params without engineParams.containerSelection when it is the default.
+def _without_default_settings(params: dict[str, Any]) -> dict[str, Any]:
+    """Params without the default settings both sources write irregularly.
 
-    ASSUMPTION (H-71): {"containerMode": "INHERIT"} is the default container setting,
-    written or left out irregularly by both an export and the API (seen on DSS 15). It is
-    removed so that both sources give the same recipe; the engine never reads it.
+    ASSUMPTION (H-71): engineParams.containerSelection = {"containerMode": "INHERIT"} and
+    selection.ascending = true are default settings, written or left out irregularly by
+    both an export and the API (seen on DSS 15: the API adds ascending on a trial
+    instance, a real export writes it for some recipes). They are removed so that both
+    sources give the same recipe; the engine never reads them. Any other value is kept.
     """
-    engine = params.get("engineParams")
-    if not isinstance(engine, dict) or engine.get("containerSelection") != DEFAULT_CONTAINER:
-        return params
-    return {
-        **params,
-        "engineParams": {k: v for k, v in engine.items() if k != "containerSelection"},
-    }
+    out = dict(params)
+    engine = out.get("engineParams")
+    if isinstance(engine, dict) and engine.get("containerSelection") == DEFAULT_CONTAINER:
+        out["engineParams"] = {k: v for k, v in engine.items() if k != "containerSelection"}
+    selection = out.get("selection")
+    if isinstance(selection, dict) and selection.get("ascending") is True:
+        out["selection"] = {k: v for k, v in selection.items() if k != "ascending"}
+    return out
 
 
 class _Archive:
@@ -368,7 +371,7 @@ class _ProjectBuilder:
                 name,
                 f"recipe type '{rtype}' is unknown; definition and payload kept as-is",
             )
-        params = _without_default_container(_as_dict(data.get("params")))
+        params = _without_default_settings(_as_dict(data.get("params")))
         # ASSUMPTION (H-22): selected engine in params.engineParams.engineType.
         engine = _opt_str(_as_dict(params.get("engineParams")).get("engineType"))
 

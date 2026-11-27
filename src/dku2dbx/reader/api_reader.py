@@ -64,16 +64,15 @@ CODE_EXTENSIONS = {
 
 # ASSUMPTION (H-71): keys the API adds and an export leaves out, seen on Dataiku Cloud
 # (DSS 15.2.2); removed so that both sources give the same objects. A nested key is
-# only removed when it has the default value seen on the export.
+# only removed when it has the default value seen on the export. The default settings
+# both sources write irregularly (containerSelection, selection.ascending) are removed
+# by the common builder for both (zip_reader._without_default_settings).
 API_ONLY_KEYS = {
     "datasets": ("name", "projectKey", "smartName", "versionTag"),
     "recipes": ("name", "projectKey", "versionTag"),
 }
-API_DEFAULTS = {
-    "recipes": (
-        (("hashPropagationBehavior",), "INHERIT"),
-        (("params", "selection", "ascending"), True),
-    ),
+API_DEFAULTS: dict[str, tuple[tuple[tuple[str, ...], Any], ...]] = {
+    "recipes": ((("hashPropagationBehavior",), "INHERIT"),),
 }
 
 

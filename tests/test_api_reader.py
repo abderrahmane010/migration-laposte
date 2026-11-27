@@ -610,3 +610,40 @@ def test_other_api_errors_on_the_plugin_list_are_not_hidden() -> None:
     fake.plugins_status = 500
     with pytest.raises(ApiError, match="HTTP 500"):
         _reader(fake).read_project("DEMO_COMPLEXE")
+
+
+def test_the_default_ascending_setting_is_removed_for_both_sources(tmp_path: Path) -> None:
+    # Seen on a real production project (2026-11-27): the export writes
+    # selection.ascending = true for some recipes, the API leaves it out (H-71).
+    p = mf.build_demo_simple()
+    p.add_dataset(mf.dataset(p.key, "orders_copy", cols=mf.columns("x:string")))
+    p.add_dataset(mf.dataset(p.key, "orders_desc", cols=mf.columns("x:string")))
+    default = mf.recipe(
+        p.key, "copy_orders", "sync", [mf.ref("orders_raw")], [mf.out_ref("orders_copy")]
+    )
+    default["params"] = {
+        "engineParams": {},
+        "selection": {"samplingMethod": "FULL", "ascending": True},
+    }
+    explicit = mf.recipe(
+        p.key, "desc_orders", "sync", [mf.ref("orders_raw")], [mf.out_ref("orders_desc")]
+    )
+    explicit["params"] = {
+        "engineParams": {},
+        "selection": {"samplingMethod": "FULL", "ascending": False},
+    }
+    p.add_recipe(default, {})
+    p.add_recipe(explicit, {})
+    path = tmp_path / "ascending.zip"
+    path.write_bytes(mf.zip_bytes(p.files()))
+    fake = FakeDataiku(path)
+    answer = fake._answer("/projects/DEMO_SIMPLE/recipes/copy_orders")
+    del answer["recipe"]["params"]["selection"]["ascending"]
+    fake.overrides["/projects/DEMO_SIMPLE/recipes/copy_orders"] = answer
+    from_zip = read_export(path)
+    from_api = DataikuApiReader(DataikuApi(fake)).read_project("DEMO_SIMPLE")
+    assert [d.path for d in compare_projects(from_zip, from_api) if d.unexplained] == []
+    for project in (from_zip, from_api):
+        selections = {r.name: r.params.get("selection") for r in project.recipes}
+        assert selections["copy_orders"] == {"samplingMethod": "FULL"}
+        assert selections["desc_orders"] == {"samplingMethod": "FULL", "ascending": False}
