@@ -547,3 +547,10 @@ Phase 11 validée par le responsable le 2026-11-25 (554 tests passés). Limitati
 - Sur ce projet, aucune recette n'utilise de plugin : l'absence de la liste est sans effet sur sa migration.
 - Après cette correction, la comparaison sur ce projet donne **0 différence non expliquée sur les zones (15), les scénarios (3) et les variables (1)**. Les 8 différences non expliquées restantes portent toutes sur `params.selection.ascending = true`, écrit par l'export et absent de l'API.
 - Correction validée par le responsable (même traitement que `containerSelection`, H-71) : le constructeur commun retire `selection.ascending` quand il vaut `true`, pour les deux sources ; `false` est conservé. Le modèle interne des fixtures et de l'export du tutoriel lu par le ZIP est inchangé (aucun ne contient ce champ).
+
+### Comparaison finale : clôture de H-72 et H-73 (2026-11-27)
+
+- **H-73 constatée** pour les zones, les scénarios et les variables : sur un projet réel de l'instance de production interne (15 zones, 3 scénarios, 1 variable, 49 datasets, 43 recettes), `dku2dbx compare` donne **0 différence non expliquée**. Le verdict reste « non concluant » pour deux limites de la clé, signalées et non masquées : liste des plugins illisible (40 champs non vérifiables, H-74 ; aucune recette du projet n'utilise de plugin) et 4 autres projets illisibles (objets partagés possiblement incomplets, H-72). Les modèles enregistrés restent supposés (aucun dans les projets comparés).
+- **H-72 constatée** sur l'instance interne de préproduction : comparaison finale sur un projet de test avec un dataset partagé dans le Flow, 0 différence non expliquée, lecture complète. Le partage rapide (`quickSharingEnabled`) reste non vérifié.
+- Observation : le script d'un scénario Python est dans `project_config/scenarios/<id>.py` (H-29) ; il n'est pas encore lu et reste listé dans les entrées non interprétées. Le joindre au scénario sera une évolution à part.
+- Aucune donnée ni aucun nom de projet réel n'est versionné ; seuls des décomptes anonymes sont notés.
